@@ -25,7 +25,7 @@ def arjun(
     holdings_short_sma_window_size,
     bb_window_size,
     bb_factor,
-    target_rebalance_day=None,
+    target_rebalance_date=None,
 ):
 
     filtered_holdings_df, holdings_first_valid_date = process_data(
@@ -33,7 +33,7 @@ def arjun(
         start_date=start_date,
         end_date=end_date,
         freq=freq,
-        target_rebalance_day=target_rebalance_day,
+        target_rebalance_date=target_rebalance_date,
         max_window=holdings_largest_window,
     )
 
@@ -42,7 +42,7 @@ def arjun(
         start_date=start_date,
         end_date=end_date,
         freq=freq,
-        target_rebalance_day=target_rebalance_day,
+        target_rebalance_date=target_rebalance_date,
         max_window=etfs_largest_window,
     )
 
