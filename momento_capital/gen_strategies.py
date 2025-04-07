@@ -4,7 +4,7 @@ from .strategies import arjun
 def gen_arjun(
     start_date,
     end_date,
-    target_rebalance_day,
+    target_rebalance_date,
     filtered_holdings_df,
     filtered_etfs_df,
     interval_keyed_historical_holdings,
@@ -16,7 +16,7 @@ def gen_arjun(
     return arjun(
         start_date=start_date,
         end_date=end_date,
-        target_rebalance_day=target_rebalance_day,
+        target_rebalance_date=target_rebalance_date,
         filtered_holdings_df=filtered_holdings_df,
         filtered_etfs_df=filtered_etfs_df,
         interval_keyed_historical_holdings=interval_keyed_historical_holdings,
