@@ -1,8 +1,0 @@
-setup.py
-momento_capital/__init__.py
-momento_capital/portfolio.py
-momento_capital.egg-info/PKG-INFO
-momento_capital.egg-info/SOURCES.txt
-momento_capital.egg-info/dependency_links.txt
-momento_capital.egg-info/requires.txt
-momento_capital.egg-info/top_level.txt

@@ -9,6 +9,7 @@ def arjun(
     end_date,
     filtered_holdings_df,
     filtered_etfs_df,
+    benchmark_series,
     interval_keyed_historical_holdings,
     sector_keyed_holdings,
     # benchmark_series,
@@ -26,6 +27,7 @@ def arjun(
     bb_window_size,
     bb_factor,
     target_rebalance_date=None,
+    portfolio_id="_id_",
 ):
 
     filtered_holdings_df, holdings_first_valid_date = process_data(
@@ -109,26 +111,30 @@ def arjun(
     manager = TrailingStopBollinger(
         df=filtered_holdings_df, window_size=bb_window_size, bollinger_factor=bb_factor
     )
+    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
     portfolio = PortfolioSimulator(
         initial_cash=100000,
         target_weight=1,
         df=filtered_holdings_df,
         id_structure="11111",
         manager=manager,
-        evaluator=None,
+        evaluator=evaluator,
         seed=1,
         verbose=0,
-        portfolio_id="p_1",
+        portfolio_id=portfolio_id,
     )
     portfolio.simulate(cleaned_signal)
 
-    equity_records = portfolio.value
-    if equity_records[0]["date"] != holdings_first_valid_date:
-        equity_records = [
-            {"date": date, "value": 100000}
-            for date in dates
-            if date < equity_records[0]["date"]
-        ] + equity_records
+    return portfolio
+
+    # equity_records = portfolio.value
+    # if equity_records[0]["date"] != holdings_first_valid_date:
+    #     equity_records = [
+    #         {"date": date, "value": 100000}
+    #         for date in dates
+    #         if date < equity_records[0]["date"]
+    #     ] + equity_records
+
     # logs_records = portfolio.history
     # trades_records = portfolio.trades
     # holdings_records = portfolio.holdings
@@ -143,7 +149,7 @@ def arjun(
     #     # "metrics": metrics_records,
     #     # "trade_metrics": trade_metrics_records,
     # }
-    return equity_records
+    # return equity_records
 
 
 def dinorah(
@@ -154,6 +160,8 @@ def dinorah(
     target_rebalance_date,
     interval_keyed_historical_holdings,
     sector_keyed_holdings,
+    benchmark_series,
+    portfolio_id,
     freq=15,
     etfs_rsi_window_size=20,
     etfs_rsi_lower_limit=20,
@@ -242,24 +250,26 @@ def dinorah(
     manager = TrailingStopBollinger(
         df=filtered_holdings_df, window_size=bb_window_size, bollinger_factor=bb_factor
     )
+    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
     portfolio = PortfolioSimulator(
         initial_cash=100000,
         target_weight=1,
         df=filtered_holdings_df,
         id_structure="11111",
         manager=manager,
-        evaluator=None,
+        evaluator=evaluator,
         seed=1,
         verbose=0,
-        portfolio_id="p_1",
+        portfolio_id=portfolio_id,
     )
     portfolio.simulate(cleaned_signal)
+    return portfolio
 
-    equity_records = portfolio.value
-    if equity_records[0]["date"] != holdings_first_valid_date:
-        equity_records = [
-            {"date": date, "value": 100000}
-            for date in dates
-            if date < equity_records[0]["date"]
-        ] + equity_records
-    return equity_records
+    # equity_records = portfolio.value
+    # if equity_records[0]["date"] != holdings_first_valid_date:
+    #     equity_records = [
+    #         {"date": date, "value": 100000}
+    #         for date in dates
+    #         if date < equity_records[0]["date"]
+    #     ] + equity_records
+    # return equity_records
