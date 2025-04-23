@@ -1,5 +1,0 @@
-quantstats
-matplotlib
-pandas
-numpy
-godolib

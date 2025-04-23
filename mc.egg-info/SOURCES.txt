@@ -1,9 +1,0 @@
-setup.py
-mc/__init__.py
-mc/portfolio.py
-mc/portfolio_utilities.py
-mc.egg-info/PKG-INFO
-mc.egg-info/SOURCES.txt
-mc.egg-info/dependency_links.txt
-mc.egg-info/requires.txt
-mc.egg-info/top_level.txt
