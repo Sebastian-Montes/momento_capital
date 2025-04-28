@@ -21,7 +21,7 @@ def dinorah(
     holdings_rsi_lower_limit,
     holdings_vol_window_size,
     holdings_vol_n_top, 
-    manager_sma_window_size
+    manager_sma_window_size, benchmark_series
 ):
 
     filtered_etfs_df, etfs_first_valid_date = process_data(
