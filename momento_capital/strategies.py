@@ -1,4 +1,4 @@
-from .portfolio import PortfolioEvaluator, PortfolioSimulator, TrailingStopBollinger
+from .portfolio import PortfolioEvaluator, PortfolioSimulator, TrailingStopBollinger, TrailingStopSMA
 from signals.utilities import extract_common_detailed_signal, process_data, clean_signal
 from signals.extractor import EtfSignalExtractor, HoldingsSignalExtractor
 import pandas as pd
@@ -127,31 +127,6 @@ def arjun(
 
     return portfolio
 
-    # equity_records = portfolio.value
-    # if equity_records[0]["date"] != holdings_first_valid_date:
-    #     equity_records = [
-    #         {"date": date, "value": 100000}
-    #         for date in dates
-    #         if date < equity_records[0]["date"]
-    #     ] + equity_records
-
-    # logs_records = portfolio.history
-    # trades_records = portfolio.trades
-    # holdings_records = portfolio.holdings
-    # metrics_records = portfolio.metrics.to_dict(orient="records")
-    # trade_metrics_records = portfolio.trade_metrics.to_dict(orient="records")
-
-    # return {
-    #     "equity": equity_records,
-    #     "logs": logs_records,
-    #     "trades": trades_records,
-    #     "holdings": holdings_records,
-    #     # "metrics": metrics_records,
-    #     # "trade_metrics": trade_metrics_records,
-    # }
-    # return equity_records
-
-
 def dinorah(
     etfs_df,
     holdings_df,
@@ -160,19 +135,16 @@ def dinorah(
     target_rebalance_date,
     interval_keyed_historical_holdings,
     sector_keyed_holdings,
-    benchmark_series,
     portfolio_id,
-    freq=15,
-    etfs_rsi_window_size=20,
-    etfs_rsi_lower_limit=20,
-    etfs_rsi_upper_limit=50,
-    etfs_sma_window_size_1=10,
-    etfs_sma_window_size_2=20,
-    holdings_sma_window_size=15,
-    holdings_rm_window_size=15,
-    holdings_rm_n_top=5,
-    bb_window_size=20,
-    bb_factor=2.2,
+    freq,
+    etfs_vol_window_size,
+    etfs_vol_threshold,
+    holdings_rsi_window_size,
+    holdings_rsi_upper_limit,
+    holdings_rsi_lower_limit,
+    holdings_vol_window_size,
+    holdings_vol_n_top, 
+    manager_sma_window_size
 ):
 
     filtered_etfs_df, etfs_first_valid_date = process_data(
@@ -181,9 +153,7 @@ def dinorah(
         end_date=end_date,
         freq=freq,
         target_rebalance_date=target_rebalance_date,
-        max_window=max(
-            etfs_rsi_window_size, etfs_sma_window_size_1, etfs_sma_window_size_2
-        ),
+        max_window=etfs_vol_window_size
     )
 
     filtered_holdings_df, holdings_first_valid_date = process_data(
@@ -192,7 +162,7 @@ def dinorah(
         end_date=end_date,
         freq=freq,
         target_rebalance_date=target_rebalance_date,
-        max_window=max(holdings_sma_window_size, holdings_rm_window_size),
+        max_window=max(holdings_rsi_window_size, holdings_vol_window_size),
     )
 
     dates = [
@@ -209,15 +179,11 @@ def dinorah(
         start_date=etfs_first_valid_date,
     )
 
-    etfs_rsi_signal = etf_extractor.conditioned_rsi(
-        rsi_windows=[etfs_rsi_window_size],
-        rsi_condition=lambda rsi: (rsi < etfs_rsi_upper_limit)
-        and (rsi > etfs_rsi_lower_limit),
-    )
-
-    etfs_sma_signal = etf_extractor.conditioned_price_vs_sma(
-        sma_windows=[etfs_sma_window_size_1, etfs_sma_window_size_2],
-        condition=lambda price, sma: price < sma,
+    etfs_vol_signal = etf_extractor.conditioned_volatility(
+        volatility_windows=[etfs_vol_window_size],
+        condition=lambda vol: vol <= etfs_vol_threshold,
+        returns_method="percentage",
+        returns_period=1,
     )
 
     holding_extractor = HoldingsSignalExtractor(
@@ -225,51 +191,39 @@ def dinorah(
         freq=freq,
         interval_keyed_historical_holdings=interval_keyed_historical_holdings,
         sector_keyed_holdings=sector_keyed_holdings,
-        detailed_sector_signal=extract_common_detailed_signal(
-            signals=[etfs_rsi_signal, etfs_sma_signal]
-        ),
+        detailed_sector_signal=etfs_vol_signal,
         start_date=holdings_first_valid_date,
     )
 
-    holdings_sma_signal = holding_extractor.conditioned_price_vs_sma(
-        sma_windows=[holdings_sma_window_size],
-        condition=lambda price, sma: price > sma,
+    holding_rsi_signal = holding_extractor.conditioned_rsi(
+        rsi_windows=[holdings_rsi_window_size],
+        rsi_condition=lambda rsi: (rsi >= holdings_rsi_lower_limit)
+        and (rsi <= holdings_rsi_upper_limit),
+    )
+    holdings_vol_signal = holding_extractor.top_least_volatile(
+        n_top=holdings_vol_n_top,
+        volatility_windows=[holdings_vol_window_size],
+        returns_period=1,
+        returns_method="percentage",
+        base_signal=holding_rsi_signal,
     )
 
-    holdings_rm_signal = holding_extractor.top_most_relative_momentum(
-        n_top=holdings_rm_n_top,
-        relative_momentum_windows=[holdings_rm_window_size],
-        base_signal=holdings_sma_signal,
-    )
-
-    holding_signal = {k: list(v.keys()) for k, v in holdings_rm_signal.items()}
+    holding_signal = {k: list(v.keys()) for k, v in holdings_vol_signal.items()}
     cleaned_signal = clean_signal(holding_signal)
     if all(len(s) == 0 for s in cleaned_signal.values()):
         return [{"date": date, "value": 100000} for date in dates]
 
-    manager = TrailingStopBollinger(
-        df=filtered_holdings_df, window_size=bb_window_size, bollinger_factor=bb_factor
-    )
-    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
+    manager = TrailingStopSMA(period=manager_sma_window_size, df=filtered_holdings_df)
     portfolio = PortfolioSimulator(
         initial_cash=100000,
         target_weight=1,
         df=filtered_holdings_df,
         id_structure="11111",
         manager=manager,
-        evaluator=evaluator,
+        evaluator=None,
         seed=1,
         verbose=0,
         portfolio_id=portfolio_id,
     )
     portfolio.simulate(cleaned_signal)
     return portfolio
-
-    # equity_records = portfolio.value
-    # if equity_records[0]["date"] != holdings_first_valid_date:
-    #     equity_records = [
-    #         {"date": date, "value": 100000}
-    #         for date in dates
-    #         if date < equity_records[0]["date"]
-    #     ] + equity_records
-    # return equity_records
