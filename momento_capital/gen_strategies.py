@@ -48,7 +48,7 @@ def gen_dinorah(
     filtered_holdings_df,
     filtered_etfs_df,
     interval_keyed_historical_holdings,
-    sector_keyed_holdings,
+    sector_keyed_holdings, benchmark_series
 ):
     return dinorah(
         etfs_df=filtered_etfs_df,
@@ -58,7 +58,7 @@ def gen_dinorah(
         target_rebalance_date=target_rebalance_date,
         interval_keyed_historical_holdings=interval_keyed_historical_holdings,
         sector_keyed_holdings=sector_keyed_holdings,
-        portfolio_id=portfolio_id,
+        portfolio_id=portfolio_id, benchmark_series=benchmark_series,
         freq=int(gen[0]),
         etfs_vol_window_size=int(gen[1]),
         etfs_vol_threshold=float(gen[2]),
