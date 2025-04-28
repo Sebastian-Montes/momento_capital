@@ -117,3 +117,59 @@ def get_next_closest_date(target_date, date_list):
 
     # Retornar la fecha mínima de las posteriores
     return next_dates.min().strftime("%Y-%m-%d")
+
+
+def apply_function_to_data(df, function, *args, **kwargs):
+    if int(df.isna().sum().sum()) > 0:
+        transformed_df = apply_function_by_groups(
+            df=df,
+            func=lambda group: func_by_groups(
+                group=group, func=function, *args, **kwargs
+            ),
+        )
+    else:
+        transformed_array = function(array=df.values, *args, **kwargs)
+        transformed_df = pd.DataFrame(
+            data=transformed_array,
+            index=df.index[-transformed_array.shape[0] :],
+            columns=df.columns,
+        )
+    return transformed_df
+
+
+def find_active_etfs(
+    str_date, interval_keyed_historical_holdings, sector_keyed_holdings
+):
+    active_holdings = find_active_holdings(
+        str_date=str_date,
+        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
+    )
+    active_etfs = [
+        etf
+        for etf in sector_keyed_holdings
+        if any(holding in sector_keyed_holdings[etf] for holding in active_holdings)
+    ]
+    return active_etfs
+
+
+def find_active_holdings(str_date, interval_keyed_historical_holdings):
+    active_interval = find_active_interval(
+        str_date=str_date,
+        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
+    )
+    active_holdings = interval_keyed_historical_holdings[active_interval]
+    return active_holdings
+
+
+def find_active_interval(str_date, interval_keyed_historical_holdings):
+    for interval in interval_keyed_historical_holdings.keys():
+        str_interval_start_date, str_interval_end_date = interval.split("/")
+        if str_interval_end_date == "--":
+            break
+        elif (
+            pd.to_datetime(str_interval_start_date)
+            <= pd.to_datetime(str_date)
+            <= pd.to_datetime(str_interval_end_date)
+        ):
+            break
+    return interval

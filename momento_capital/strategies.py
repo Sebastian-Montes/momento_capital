@@ -1,6 +1,6 @@
 from .portfolio import PortfolioEvaluator, PortfolioSimulator, TrailingStopBollinger, TrailingStopSMA
 from .transformers import calculate_relative_volatility_on_prices, calculate_simple_moving_average
-from .utilities import apply_function_by_groups, func_by_groups, find_current_filtered_active_holdings, process_data
+from .utilities import find_current_filtered_active_holdings, process_data
 from signals.utilities import extract_common_detailed_signal, clean_signal
 from signals.extractor import EtfSignalExtractor, HoldingsSignalExtractor
 import pandas as pd
@@ -46,42 +46,203 @@ def dinorah(
         if date > pd.to_datetime(holdings_first_valid_date)
     ]
 
-    etf_extractor = EtfSignalExtractor(
-        etfs_df=filtered_etfs_df,
-        freq=freq,
-        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
-        sector_keyed_holdings=sector_keyed_holdings,
-        start_date=etfs_first_valid_date,
-    )
 
-    etfs_vol_signal = etf_extractor.conditioned_volatility(
-        volatility_windows=[etfs_vol_window_size],
-        condition=lambda vol: vol <= etfs_vol_threshold,
-        returns_method="percentage",
-        returns_period=1,
+    etfs_vol_dates = [date.strftime("%Y-%m-%d") for date in filtered_etfs_df.index]
+    if etfs_first_valid_date not in etfs_vol_dates:
+        raise ValueError("start date not in index")
+    etfs_vol_dfs = [
+        apply_function_to_data(
+            df=filtered_etfs_df,
+            function=calculate_relative_volatility_on_prices,
+            returns_period=1,
+            returns_method="percentage",
+            ddof=0,
+            window_size=etfs_vol_window_size,
+        )
+    ]
+    etfs_vol_first_valid_date = max(
+        vol_df.index[0].strftime("%Y-%m-%d") for vol_df in etfs_vol_dfs
     )
+    if etfs_vol_first_valid_date >= etfs_first_valid_date:
+        raise ValueError(
+            f"not enough data to satisfy given start date ({etfs_first_valid_date}). Transformed data first valid date: {etfs_vol_first_valid_date})"
+        )
+    etfs_vol_dates = [
+        date
+        for date in etfs_vol_dates
+        if pd.to_datetime(date) >= pd.to_datetime(etfs_first_valid_date)
+    ]
+    etfs_vol_dfs = [vol_df.loc[vol_df.index >= etfs_first_valid_date] for vol_df in etfs_vol_dfs]
 
-    holding_extractor = HoldingsSignalExtractor(
-        holdings_df=filtered_holdings_df,
-        freq=freq,
-        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
-        sector_keyed_holdings=sector_keyed_holdings,
-        detailed_sector_signal=etfs_vol_signal,
-        start_date=holdings_first_valid_date,
-    )
+    etfs_vol_signal = {}
 
-    holding_rsi_signal = holding_extractor.conditioned_rsi(
-        rsi_windows=[holdings_rsi_window_size],
-        rsi_condition=lambda rsi: (rsi >= holdings_rsi_lower_limit)
-        and (rsi <= holdings_rsi_upper_limit),
+    etfs_vol_condition = lambda vol: vol <= etfs_vol_threshold
+
+    for date_idx, date in enumerate(etfs_vol_dates):
+        if date_idx % freq == 0:
+            current_active_etfs = find_active_etfs(
+                str_date=date,
+                interval_keyed_historical_holdings=interval_keyed_historical_holdings,
+                sector_keyed_holdings=sector_keyed_holdings,
+            )
+            current_active_etfs = [
+                etf for etf in current_active_etfs if etf in filtered_etfs_df
+            ]
+            values = [df[current_active_etfs].loc[date].to_dict() for df in etfs_vol_dfs]
+            etfs_vol_signal[date] = [
+                etf
+                for etf in current_active_etfs
+                if all(etfs_vol_condition(value[etf]) for value in values)
+            ]
+
+    etfs_vol_signal = {
+        date: {
+            etf: {
+                "price": float(filtered_etfs_df.loc[date, etf]),
+                **{
+                    f"volatility_{window}": float(
+                        etfs_vol_dfs[window_idx].loc[date, etf]
+                    )
+                    for window_idx, window in enumerate([etfs_vol_window_size])
+                },
+            }
+            for etf in date_signal
+        }
+        for date, date_signal in etfs_vol_signal.items()
+    }
+
+
+    holdings_rsi_dates = [date.strftime("%Y-%m-%d") for date in filtered_holdings_df.index]
+    if holdings_first_valid_date not in holdings_rsi_dates:
+        raise ValueError("start date not in index")
+    holdings_rsi_dfs = [
+        apply_function_to_data(
+            df=filtered_holdings_df, function=calculate_rsi, window_size=holdings_rsi_window_size
+        )
+    ]
+    holdings_rsi_first_valid_date = max(
+        rsi_df.index[0].strftime("%Y-%m-%d") for rsi_df in holdings_rsi_dfs
     )
-    holdings_vol_signal = holding_extractor.top_least_volatile(
-        n_top=holdings_vol_n_top,
-        volatility_windows=[holdings_vol_window_size],
-        returns_period=1,
-        returns_method="percentage",
-        base_signal=holding_rsi_signal,
+    if holdings_rsi_first_valid_date > holdings_first_valid_date:
+        raise ValueError(
+            f"not enough data to satisfy given start date ({holdings_first_valid_date}). Transformed data first valid date: {holdings_rsi_first_valid_date})"
+        )
+    holdings_rsi_dates = [
+        date
+        for date in holdings_rsi_dates
+        if pd.to_datetime(date) >= pd.to_datetime(holdings_first_valid_date)
+    ]
+    holdings_rsi_dfs = [rsi_df.loc[rsi_df.index >= holdings_first_valid_date] for rsi_df in holdings_rsi_dfs]
+
+    holding_rsi_signal = {}
+    holdings_rsi_condition = lambda rsi: (rsi >= holdings_rsi_lower_limit) and (rsi <= holdings_rsi_upper_limit)
+
+    for date_idx, date in enumerate(holdings_rsi_dates):
+        if date_idx % freq == 0:
+            current_active_holdings = find_current_filtered_active_holdings(
+                date=date,
+                interval_keyed_historical_holdings=interval_keyed_historical_holdings,
+                holdings_df=filtered_holdings_df,
+                sector_keyed_holdings=sector_keyed_holdings,
+                sector_signal={
+                                date: list(date_signal.keys())
+                                for date, date_signal in etfs_vol_signal.items()
+                            },
+            )
+            holding_rsi_signal[date] = [
+                holding
+                for holding in current_active_holdings
+                if all(
+                    holdings_rsi_condition(
+                        df[current_active_holdings].loc[date].to_dict()[holding]
+                    )
+                    for df in holdings_rsi_dfs
+                )
+            ]
+
+    holding_rsi_signal = {
+        date: {
+            holding: {
+                "price": float(filtered_holdings_df.loc[date, holding]),
+                **{
+                    f"rsi_{window}": float(holdings_rsi_dfs[window_idx].loc[date, holding])
+                    for window_idx, window in enumerate([holdings_rsi_window_size])
+                },
+            }
+            for holding in date_signal
+        }
+        for date, date_signal in holding_rsi_signal.items()
+    }
+
+    holdings_vol_dates = [date.strftime("%Y-%m-%d") for date in filtered_holdings_df.index]
+    if holdings_first_valid_date not in holdings_vol_dates:
+        raise ValueError("start date not in index")
+    holdings_vol_dfs = [
+        apply_function_to_data(
+            df=filtered_holdings_df,
+            function=calculate_relative_volatility_on_prices,
+            returns_period=1,
+            window_size=holdings_vol_window_size,
+            returns_method="percentage",
+            ddof=0,
+        )
+    ]
+
+    holdings_vol_first_valid_date = max(
+        vol_df.index[0].strftime("%Y-%m-%d") for vol_df in holdings_vol_dfs
     )
+    if holdings_vol_first_valid_date > holdings_first_valid_date:
+        raise ValueError(
+            f"not enough data to satisfy given start date ({holdings_first_valid_date}). Transformed data first valid date: {holdings_vol_first_valid_date})"
+        )
+    holdings_vol_dates = [
+        date
+        for date in holdings_vol_dates
+        if pd.to_datetime(date) >= pd.to_datetime(holdings_first_valid_date)
+    ]
+    holdings_vol_dfs = [vol_df.loc[vol_df.index >= holdings_first_valid_date] for vol_df in holdings_vol_dfs]
+
+    holdings_vol_signal = {}
+
+    for date_idx, date in enumerate(holdings_vol_dates):
+        if date_idx % freq == 0:
+            current_active_holdings = list(holding_rsi_signal[date].keys())
+            holdings_vol_signal[date] = [
+                holding
+                for holding in current_active_holdings
+                if all(
+                    holding
+                    in list(
+                        dict(
+                            sorted(
+                                df[current_active_holdings]
+                                .loc[date]
+                                .to_dict()
+                                .items(),
+                                key=lambda items: items[1],
+                                reverse=False,
+                            )
+                        ).keys()
+                    )[:holdings_vol_n_top]
+                    for df in holdings_vol_dfs
+                )
+            ]
+
+    holdings_vol_signal = {
+        date: {
+            holding: {
+                "price": float(filtered_holdings_df.loc[date, holding]),
+                **{
+                    f"volatility_{window}": float(
+                        holdings_vol_dfs[window_idx].loc[date, holding]
+                    )
+                    for window_idx, window in enumerate([holdings_vol_window_size])
+                },
+            }
+            for holding in date_signal
+        }
+        for date, date_signal in holdings_vol_signal.items()
+    }
 
     holding_signal = {k: list(v.keys()) for k, v in holdings_vol_signal.items()}
     cleaned_signal = clean_signal(holding_signal)
@@ -102,7 +263,6 @@ def dinorah(
     )
     portfolio.simulate(cleaned_signal)
     return portfolio
-
 
 def arjun(
     start_date,
@@ -497,57 +657,3 @@ def arjun(
 
 
 
-def apply_function_to_data(df, function, *args, **kwargs):
-    if int(df.isna().sum().sum()) > 0:
-        transformed_df = apply_function_by_groups(
-            df=df,
-            func=lambda group: func_by_groups(
-                group=group, func=function, *args, **kwargs
-            ),
-        )
-    else:
-        transformed_array = function(array=df.values, *args, **kwargs)
-        transformed_df = pd.DataFrame(
-            data=transformed_array,
-            index=df.index[-transformed_array.shape[0] :],
-            columns=df.columns,
-        )
-    return transformed_df
-
-
-def find_active_etfs(
-    str_date, interval_keyed_historical_holdings, sector_keyed_holdings
-):
-    active_holdings = find_active_holdings(
-        str_date=str_date,
-        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
-    )
-    active_etfs = [
-        etf
-        for etf in sector_keyed_holdings
-        if any(holding in sector_keyed_holdings[etf] for holding in active_holdings)
-    ]
-    return active_etfs
-
-
-def find_active_holdings(str_date, interval_keyed_historical_holdings):
-    active_interval = find_active_interval(
-        str_date=str_date,
-        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
-    )
-    active_holdings = interval_keyed_historical_holdings[active_interval]
-    return active_holdings
-
-
-def find_active_interval(str_date, interval_keyed_historical_holdings):
-    for interval in interval_keyed_historical_holdings.keys():
-        str_interval_start_date, str_interval_end_date = interval.split("/")
-        if str_interval_end_date == "--":
-            break
-        elif (
-            pd.to_datetime(str_interval_start_date)
-            <= pd.to_datetime(str_date)
-            <= pd.to_datetime(str_interval_end_date)
-        ):
-            break
-    return interval
