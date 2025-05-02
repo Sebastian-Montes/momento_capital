@@ -8,6 +8,7 @@ def max_drawdown(equity_curve):
     max_dd = np.min(drawdowns)
     return max_dd
 
+
 def calculate_returns(array, period):
     if not isinstance(array, np.ndarray):
         raise ValueError("Input object must be an array")
@@ -18,6 +19,7 @@ def calculate_returns(array, period):
     transformed_array = (array[period:] / array[:-period]) - 1
     return np.array(transformed_array)
 
+
 def calculate_log_returns(array, period):
     if not isinstance(array, np.ndarray):
         raise ValueError("Input object must be an array")
@@ -27,6 +29,7 @@ def calculate_log_returns(array, period):
         raise ValueError("Array contains NaNs")
     log_returns_array = np.diff(np.log(array), axis=0)
     return log_returns_array
+
 
 def calculate_relative_volatility_on_prices(
     array,
@@ -53,6 +56,7 @@ def calculate_relative_volatility_on_prices(
     volatility_array = np.std(returns_windows, axis=2, ddof=ddof)
     return volatility_array
 
+
 def calculate_simple_moving_average(array, window_size):
 
     if not isinstance(array, np.ndarray):
@@ -68,3 +72,27 @@ def calculate_simple_moving_average(array, window_size):
         axis=2,
     )
     return transformed_values
+
+
+def standardize(array, mean, std):
+    if not isinstance(array, np.ndarray):
+        raise ValueError("Input object must be an array")
+    if array.ndim != 2:
+        raise ValueError("Array must be bidimensional")
+    if np.isnan(array).any():
+        raise ValueError("Array contains NaNs")
+    standardized_array = (array - mean) / std
+    return standardized_array
+
+
+def calculate_lower_bb(array, window_size, bollinger_factor):
+    sma_array = calculate_simple_moving_average(array=array, window_size=window_size)
+    rolling_std_array = np.std(
+        np.lib.stride_tricks.sliding_window_view(
+            x=array, axis=0, window_shape=window_size
+        ),
+        axis=2,
+    )
+    lower_bollinger_band_array = sma_array - bollinger_factor * rolling_std_array
+    return lower_bollinger_band_array
+
