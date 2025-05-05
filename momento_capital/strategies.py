@@ -17,6 +17,9 @@ from .utilities import (
 from signals.utilities import extract_common_detailed_signal, clean_signal
 import pandas as pd
 from godolib.fast_transformers import calculate_rsi
+from .checkster_utilities import *
+
+from pandas.tseries.offsets import DateOffset
 
 
 def dinorah(
@@ -709,5 +712,288 @@ def arjun(
         portfolio_id=portfolio_id,
     )
     portfolio.simulate(cleaned_signal)
+
+    return portfolio
+
+
+def checkster(
+    df_s3,
+    df,
+    benchmark_series,
+    filtered_historical_holdings,
+    filtered_sector_holdings,
+    holdings_adjusted_close,
+    start_date,
+    end_date,  # ← NEW  (pass a "YYYY‑MM‑DD" string or leave None)
+    stocks_per_etf,
+    marked_dates_per_year,
+    rebalance_freq,
+    n_top,
+    roc_stddev_period,
+):
+
+    # ... your nested helper functions ...
+    def calculate_roc(df, period):
+        return df["adjusted_close"].pct_change(periods=period) * 100
+
+    def calculate_stddev(df, period):
+        returns = df["adjusted_close"].pct_change()
+        return returns.rolling(window=period).std(ddof=1) * 100
+
+    def calculate_roc_stddev_ratio(df, period):
+        df = df.copy()
+        df["ROC"] = calculate_roc(df, period)
+        df["STDDEV"] = calculate_stddev(df, period)
+        df["ROC_STDDEV_Ratio"] = df["ROC"] / df["STDDEV"]
+        return df
+
+    def rank_top_10_by_etf(df, etf_column, metric):
+        ranked_data = []
+        for etf in df[etf_column].unique():
+            etf_data = df[df[etf_column] == etf]
+            unique_dates = sorted(etf_data["date"].unique())
+
+            for date in unique_dates:
+                daily_data = etf_data[etf_data["date"] == date].nlargest(10, metric)
+                if not daily_data.empty:
+                    daily_data = daily_data[["ticker", metric, "date"]]
+                    daily_data["Rank"] = range(1, len(daily_data) + 1)
+                    daily_data["ETF"] = etf
+                    ranked_data.append(daily_data)
+        return pd.concat(ranked_data, axis=0)
+
+    def pivot_ranked_data_by_etf(df, etf):
+        etf_data = df[df["ETF"] == etf]
+        return etf_data.pivot(index="Rank", columns="date", values="ticker")
+
+    def get_fixed_marked_dates(df, marked_dates_per_year):
+        df.index = pd.to_datetime(df.index)
+        df_sorted = df.sort_index()
+        unique_years = df_sorted.index.year.unique()
+        marked_dates = []
+
+        for year in unique_years:
+            start_date = pd.Timestamp(f"{year}-01-01")
+            interval = 12 // marked_dates_per_year
+
+            for i in range(marked_dates_per_year):
+                boundary = start_date + DateOffset(months=i * interval)
+                valid_subset = df_sorted.index[df_sorted.index >= boundary]
+                if len(valid_subset) > 0:
+                    first_valid_after_boundary = valid_subset[0]
+                    marked_dates.append(first_valid_after_boundary)
+
+        return pd.to_datetime(sorted(set(marked_dates)))
+
+    # Main logic of checkster
+    marked_dates = get_fixed_marked_dates(df, marked_dates_per_year)
+    df.index = pd.to_datetime(df.index)
+    dates = [
+        d
+        for d in df.index.strftime("%Y-%m-%d").tolist()
+        if d >= start_date and (end_date is None or d <= end_date)
+    ]
+
+    active_holdings_list = [
+        extract_active_holdings(
+            date, filtered_historical_holdings, filtered_sector_holdings
+        )
+        for date in dates
+    ]
+
+    active_holdings_cache = dict(zip(dates, active_holdings_list))
+
+    rebalance_dates = [dates[i] for i in range(len(dates)) if i % rebalance_freq == 0]
+    combined_rebalance_dates = sorted(
+        set(rebalance_dates).union(md.strftime("%Y-%m-%d") for md in marked_dates)
+    )
+
+    def process_dates_chunk(
+        dates_chunk, df, symbols, marked_dates, active_holdings_cache, n_top
+    ):
+        local_etfs_return_cache = {}
+        local_top_etfs = {}
+
+        for date in dates_chunk:
+            current_date = pd.to_datetime(date)
+
+            if date not in active_holdings_cache:
+                # print(
+                #     f"Warning: {date} not found in active_holdings_cache. Skipping..."
+                # )
+                continue
+
+            if current_date in marked_dates:
+                past_marked_dates = marked_dates[marked_dates < current_date]
+            else:
+                past_marked_dates = marked_dates[marked_dates <= current_date]
+
+            if past_marked_dates.empty:
+                # print(f"❌ ERROR: No valid past rebalance date for {date}. Skipping...")
+                continue
+
+            marked_date = past_marked_dates.max()
+
+            if marked_date not in df.index:
+                # print(
+                #     f"❌ ERROR: Marked date {marked_date} missing in DataFrame. Skipping..."
+                # )
+                continue
+
+            if df.loc[marked_date, symbols].isnull().any():
+                # print(
+                #     f"⚠️ Warning: NaN in ETF prices on {marked_date}. Skipping return."
+                # )
+                continue
+
+            if date not in local_etfs_return_cache:
+                local_etfs_return_cache[date] = (
+                    df.loc[date, symbols] / df.loc[marked_date, symbols]
+                ) - 1
+
+            sorted_returns = local_etfs_return_cache[date].sort_values(ascending=False)[
+                :n_top
+            ]
+            local_top_etfs[date] = sorted_returns.index.tolist()
+
+        return local_etfs_return_cache, local_top_etfs
+
+    import math
+
+    symbols = [
+        "XLK",
+        "XLC",
+        "XLV",
+        "XLF",
+        "XLP",
+        "XLI",
+        "XLE",
+        "XLY",
+        "XLB",
+        "XLU",
+        "XLRE",
+    ]
+
+    # --- sin paralelizacion ------------------
+    etfs_return_cache = {}
+    top_etfs = {}
+
+    # we can reuse the same chunk logic if you like, but a single call works too
+    partial_return_cache, partial_top_etfs = process_dates_chunk(
+        dates,  # <- just pass the full list
+        df,
+        symbols,
+        marked_dates,
+        active_holdings_cache,
+        n_top,
+    )
+
+    etfs_return_cache.update(partial_return_cache)
+    top_etfs.update(partial_top_etfs)
+    # ---------------------------------------------------------------------------
+
+    # print("Marked dates:\n", marked_dates)
+
+    top_ranked_sectors = {
+        date: etfs
+        for date, etfs in top_etfs.items()
+        if date in combined_rebalance_dates
+    }
+    top_ranked_sectors = pd.DataFrame(top_ranked_sectors)
+
+    # Now do your parallel on df_s3
+    df_s3 = df_s3[df_s3["ETF 1"].isin(symbols)].copy()
+    df_s3["date"] = pd.to_datetime(df_s3["date"])
+    df_s3["adjusted_close"] = pd.to_numeric(df_s3["adjusted_close"], errors="coerce")
+    df_s3.dropna(subset=["adjusted_close", "ticker", "date"], inplace=True)
+
+    results = [
+        calculate_roc_stddev_ratio(df_s3[df_s3["ticker"] == ticker], roc_stddev_period)
+        for ticker in df_s3["ticker"].unique()
+    ]
+
+    df_s3 = pd.concat(results, ignore_index=True)
+    df_s3.dropna(subset=["ROC_STDDEV_Ratio"], inplace=True)
+
+    ranked_data = rank_top_10_by_etf(df_s3, "ETF 1", "ROC_STDDEV_Ratio")
+    pivoted_data = {etf: pivot_ranked_data_by_etf(ranked_data, etf) for etf in symbols}
+
+    top_stocks_data = {}
+    for date in top_ranked_sectors.columns:
+        top_stocks_for_date = []
+        for etf in top_ranked_sectors[date]:
+            if etf in pivoted_data:
+                etf_data = pivoted_data[etf]
+                if date in etf_data.columns:
+                    top_stocks = etf_data[date].head(stocks_per_etf).tolist()
+                    top_stocks_for_date.extend(top_stocks)
+
+        if any(stock is not None for stock in top_stocks_for_date):
+            top_stocks_data[date] = top_stocks_for_date
+
+    for date, ticker_list in top_stocks_data.items():
+        cleaned_list = []
+        for t in ticker_list:
+            # We check coverage in df_s3 for (ticker == t & date == date).
+            # If that row is missing or has a NaN 'adjusted_close', skip it.
+            row_mask = (df_s3["ticker"] == t) & (df_s3["date"] == pd.to_datetime(date))
+
+            # df_s3 might have 1 row or 0 rows for that combination
+            this_row = df_s3.loc[row_mask]
+
+            if not this_row.empty:
+                # check if 'adjusted_close' is non-NaN
+                if this_row["adjusted_close"].notna().all():
+                    # it has coverage => keep it
+                    cleaned_list.append(t)
+                else:
+                    print(f"Skipping {t} on {date} (NaN coverage).")
+            else:
+                print(f"Skipping {t} on {date} (no row in df_s3).")
+
+        # Overwrite the old list with the cleaned version
+        top_stocks_data[date] = cleaned_list
+
+    top_stocks_df = pd.DataFrame.from_dict(top_stocks_data, orient="index").transpose()
+    top_stocks_df.index = range(1, (stocks_per_etf * n_top) + 1)
+    top_stocks_df.index.name = "Rank"
+
+    final_dictionary = {
+        date: list(stocks.values()) for date, stocks in top_stocks_df.to_dict().items()
+    }
+
+    # Build simulation_df from holdings_adjusted_close using the original price data.
+    simulation_df = holdings_adjusted_close.copy()
+    simulation_df["Date"] = pd.to_datetime(simulation_df["Date"], errors="coerce")
+    simulation_df.set_index("Date", inplace=True)
+    simulation_df.sort_index(inplace=True)
+    simulation_df = simulation_df.loc[simulation_df.index <= end_date]
+
+    # Gather all tickers that are signaled (i.e. appear in final_dictionary)
+    all_portfolio_tickers = set()
+    for date_str, tlist in final_dictionary.items():
+        all_portfolio_tickers.update(tlist)
+
+    # Restrict simulation_df to only these columns (tickers)
+    columns_to_keep = sorted(all_portfolio_tickers.intersection(simulation_df.columns))
+    simulation_df = simulation_df[columns_to_keep]
+
+    # Drop rows that are entirely NaN (e.g. holidays or inactive days)
+    simulation_df.dropna(how="all", inplace=True)
+
+    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
+    portfolio = PortfolioSimulator(
+        initial_cash=100000,
+        target_weight=1,
+        df=simulation_df,
+        id_structure="1111",
+        manager=None,
+        evaluator=evaluator,
+        seed=1,
+        verbose=0,
+        portfolio_id="prueba",
+    )
+
+    portfolio.simulate(signals=final_dictionary)
 
     return portfolio

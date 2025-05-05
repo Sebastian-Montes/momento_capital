@@ -1,4 +1,4 @@
-from .strategies import arjun, dinorah
+from .strategies import arjun, dinorah, checkster
 
 
 def gen_arjun(
@@ -45,7 +45,8 @@ def gen_dinorah(
     filtered_holdings_df,
     filtered_etfs_df,
     interval_keyed_historical_holdings,
-    sector_keyed_holdings, benchmark_series
+    sector_keyed_holdings,
+    benchmark_series,
 ):
     return dinorah(
         etfs_df=filtered_etfs_df,
@@ -54,7 +55,8 @@ def gen_dinorah(
         end_date=end_date,
         interval_keyed_historical_holdings=interval_keyed_historical_holdings,
         sector_keyed_holdings=sector_keyed_holdings,
-        portfolio_id=portfolio_id, benchmark_series=benchmark_series,
+        portfolio_id=portfolio_id,
+        benchmark_series=benchmark_series,
         freq=int(gen[0]),
         etfs_vol_window_size=int(gen[1]),
         etfs_vol_threshold=float(gen[2]),
@@ -64,4 +66,32 @@ def gen_dinorah(
         holdings_vol_window_size=int(gen[6]),
         holdings_vol_n_top=int(gen[7]),
         manager_sma_window_size=int(gen[8]),
+    )
+
+
+def gen_checkster(
+    gen,
+    df_s3,
+    df,
+    benchmark_series,
+    filtered_historical_holdings,
+    filtered_sector_holdings,
+    holdings_adjusted_close,
+    start_date,
+    end_date,
+):
+    return checkster(
+        df_s3=df_s3,
+        df=df,
+        benchmark_series=benchmark_series,
+        filtered_historical_holdings=filtered_historical_holdings,
+        filtered_sector_holdings=filtered_sector_holdings,
+        holdings_adjusted_close=holdings_adjusted_close,
+        start_date=start_date,
+        end_date=end_date,
+        stocks_per_etf=int(gen[0]),
+        marked_dates_per_year=int(gen[1]),
+        rebalance_freq=int(gen[2]),
+        n_top=int(gen[3]),
+        roc_stddev_period=int(gen[4]),
     )
