@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from .fast_transformers import (
+from .transformers import (
     calculate_returns,
     calculate_simple_moving_average,
     calculate_relative_volatility_on_prices,
@@ -1477,8 +1477,8 @@ class PortfolioEvaluator:
 
             plt.show()
         else:
-            series_2_starting_value = series_2.iat[0]
-            series_1_starting_value = series_1.iat[0]
+            series_2_starting_value = series_2.iat[0, 0]
+            series_1_starting_value = series_1.iat[0, 0]
             series_1 = series_1 * (series_2_starting_value / series_1_starting_value)
 
             fig, ax = plt.subplots(figsize=(12, 6))
