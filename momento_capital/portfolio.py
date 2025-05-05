@@ -1807,15 +1807,17 @@ class PortfolioEvaluator:
         )  # Two Years
         hit_rate = (returns > 0).sum() / len(returns) * 100
         equity_start_date = self.equity_data.index[0].strftime("%Y-%m-%d")
+        equity_end_date = self.equity_data.index[-1].strftime("%Y-%m-%d")
 
         benchmark_series = self.benchmark_series.copy()  # Keep as DataFrame initially
         benchmark_series = benchmark_series.loc[
-            benchmark_series.index >= equity_start_date
+            (benchmark_series.index >= equity_start_date)
+            & (benchmark_series.index <= equity_end_date)
         ]
 
         # Now calculate using the Series - results will be scalar
         benchmark_cumulative_return = (
-            (benchmark_series.iloc[-1] / benchmark_series.iloc[0]) - 1
+            (benchmark_series.iat[-1, 0] / benchmark_series.iat[0, 0]) - 1
         ) * 100
         self.benchmark_cumulative_return = benchmark_cumulative_return
 
