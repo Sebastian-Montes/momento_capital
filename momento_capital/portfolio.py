@@ -1,13 +1,13 @@
 import pandas as pd
 import numpy as np
-from godolib.fast_transformers import (
+from .fast_transformers import (
     calculate_returns,
     calculate_simple_moving_average,
     calculate_relative_volatility_on_prices,
     calculate_lower_bb,
 )
-from godolib.filing import save_dataframes_to_excel
-from godolib.data_handler import apply_function_by_groups, func_by_groups
+from .filing import save_dataframes_to_excel
+from .utilities import apply_function_by_groups, func_by_groups
 import random
 import string
 import matplotlib.pyplot as plt

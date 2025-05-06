@@ -8,25 +8,32 @@ from datetime import datetime, timedelta, date
 import math
 from typing import Dict, List, Optional, Any, Union, Tuple
 from io import StringIO
-from .transformers import calculate_simple_moving_average, calculate_relative_volatility_on_prices, calculate_lower_bb
+from .transformers import (
+    calculate_simple_moving_average,
+    calculate_relative_volatility_on_prices,
+    calculate_lower_bb,
+)
 from godolib.data_handler import apply_function_by_groups, func_by_groups
 
+
 class SectorFundamentals:
-    def __init__(self,
-                metric: str,
-                window_size: int,
-                methodology: str,
-                lowerzscore_limit: float,
-                upperzscore_limit: float,
-                # New parameters for pre-processed data
-                fin_statements: dict = None,
-                etfs_holdings: dict = None,
-                tickers_to_check: list = None,
-                quarterly_data: dict = None,
-                filtered_ticker_data: dict = None,
-                # New optional parameter for pruning
-                simulation_start_date: str = None):
-        
+    def __init__(
+        self,
+        metric: str,
+        window_size: int,
+        methodology: str,
+        lowerzscore_limit: float,
+        upperzscore_limit: float,
+        # New parameters for pre-processed data
+        fin_statements: dict = None,
+        etfs_holdings: dict = None,
+        tickers_to_check: list = None,
+        quarterly_data: dict = None,
+        filtered_ticker_data: dict = None,
+        # New optional parameter for pruning
+        simulation_start_date: str = None,
+    ):
+
         self.metric = metric
         self.window_size = window_size  # in years
         self.quarterly_window = window_size * 4  # in quarters
@@ -40,12 +47,11 @@ class SectorFundamentals:
         self.quarterly_data = quarterly_data
         self.filtered_ticker_data = filtered_ticker_data
         self.simulation_start_date = simulation_start_date
-        
+
         # Add cache attributes
         self._cached_signal_details = {}  # Dictionary to cache results by periods_prior
         self._cached_sector_z_scores = {}  # Cache for z-scores
-        self._cached_growth_data = None    # Cache for growth data
-        
+        self._cached_growth_data = None  # Cache for growth data
 
     def _calculate_metric_growth(self):
         """
@@ -58,7 +64,7 @@ class SectorFundamentals:
         # Check if we have cached results
         if self._cached_growth_data and len(self._cached_growth_data) > 0:
             return self._cached_growth_data
-            
+
         growth_data_by_date = {}
 
         # Process each quarter in the filtered holdings data
@@ -69,10 +75,14 @@ class SectorFundamentals:
             year, month = quarter_start_date.year, quarter_start_date.month
 
             # Determine which quarter this belongs to
-            if month <= 3: quarter = "Q1"
-            elif month <= 6: quarter = "Q2"
-            elif month <= 9: quarter = "Q3"
-            else: quarter = "Q4"
+            if month <= 3:
+                quarter = "Q1"
+            elif month <= 6:
+                quarter = "Q2"
+            elif month <= 9:
+                quarter = "Q3"
+            else:
+                quarter = "Q4"
 
             # Past year to compare against
             past_year = year - self.window_size
@@ -86,7 +96,9 @@ class SectorFundamentals:
                 # Data gathering
                 quarterly_dates_ticker = self.quarterly_data.get(ticker, {})
                 report_date_current = quarterly_dates_ticker.get(year, {}).get(quarter)
-                report_date_past = quarterly_dates_ticker.get(past_year, {}).get(quarter)
+                report_date_past = quarterly_dates_ticker.get(past_year, {}).get(
+                    quarter
+                )
 
                 # Skip if dates are missing (implicit check by subsequent .get)
                 if not report_date_current or not report_date_past:
@@ -115,11 +127,10 @@ class SectorFundamentals:
 
                 # Store the computed growth
                 growth_data_by_date[quarter_start_str][ticker] = growth
-        
+
         # Cache the calculated data
         self._cached_growth_data = growth_data_by_date
         return growth_data_by_date
-
 
     def get_sector_growth_data(self):
         """
@@ -130,9 +141,12 @@ class SectorFundamentals:
                   with growth data for the specified metric.
         """
         # Check if growth data is cached
-        if hasattr(self, '_cached_sector_growth_data') and self._cached_sector_growth_data is not None:
+        if (
+            hasattr(self, "_cached_sector_growth_data")
+            and self._cached_sector_growth_data is not None
+        ):
             return self._cached_sector_growth_data
-            
+
         sector_growth_data = {}
 
         # 1. Calculate the growth data
@@ -140,7 +154,9 @@ class SectorFundamentals:
 
         # 2. Convert the growth dictionary to a DataFrame
         df_growth = pd.DataFrame.from_dict(growth_dict, orient="index")
-        df_growth.index = pd.to_datetime(df_growth.index) # Convert index to DatetimeIndex
+        df_growth.index = pd.to_datetime(
+            df_growth.index
+        )  # Convert index to DatetimeIndex
 
         # 3. Process each sector
         for sector, tickers in self.etfs_holdings.items():
@@ -153,16 +169,17 @@ class SectorFundamentals:
 
             # Extract relevant data for the sector
             df_sector = df_growth[common_tickers].copy()
-            df_sector.dropna(how='all', inplace=True) # Drop rows where all values are NaN
+            df_sector.dropna(
+                how="all", inplace=True
+            )  # Drop rows where all values are NaN
 
             # Store the sector DataFrame if it's not empty
             if not df_sector.empty:
                 sector_growth_data[sector] = df_sector
-        
+
         # Cache the result
         self._cached_sector_growth_data = sector_growth_data
         return sector_growth_data  # Returns a dictionary of sector DataFrames
-
 
     def compute_sector_z_scores(self):
         """
@@ -174,9 +191,12 @@ class SectorFundamentals:
                   with computed Z-scores for that sector.
         """
         # Check cache first
-        if hasattr(self, '_cached_sector_z_scores_result') and self._cached_sector_z_scores_result is not None:
+        if (
+            hasattr(self, "_cached_sector_z_scores_result")
+            and self._cached_sector_z_scores_result is not None
+        ):
             return self._cached_sector_z_scores_result
-            
+
         sector_z_scores = {}
 
         # Call internal method to get growth data
@@ -186,17 +206,19 @@ class SectorFundamentals:
         for sector, df_sector in sector_growth_data.items():
             # Skip empty DataFrames implicitly by subsequent operations
 
-            df_sector_numeric = df_sector.apply(pd.to_numeric, errors='coerce').copy()
+            df_sector_numeric = df_sector.apply(pd.to_numeric, errors="coerce").copy()
 
             sector_mean = df_sector_numeric.mean(axis=1, skipna=True)
             sector_std = df_sector_numeric.std(axis=1, skipna=True)
 
-            z_scores = df_sector_numeric.sub(sector_mean, axis=0).div(sector_std, axis=0)
+            z_scores = df_sector_numeric.sub(sector_mean, axis=0).div(
+                sector_std, axis=0
+            )
             z_scores.replace([np.inf, -np.inf], np.nan, inplace=True)
 
             if not z_scores.empty:
                 sector_z_scores[sector] = z_scores
-        
+
         # Cache the result
         self._cached_sector_z_scores_result = sector_z_scores
         return sector_z_scores
@@ -219,7 +241,7 @@ class SectorFundamentals:
         cache_key = f"historical_z_scores_{periods_prior}"
         if cache_key in self._cached_sector_z_scores:
             return self._cached_sector_z_scores[cache_key]
-            
+
         target_date_str = self.simulation_start_date
         filtered_sector_z_scores = {}
 
@@ -231,15 +253,17 @@ class SectorFundamentals:
         for sector, df in sector_z_scores.items():
             # Skip empty DFs implicitly
             if df.empty:
-                filtered_sector_z_scores[sector] = pd.DataFrame(index=pd.to_datetime([]), columns=df.columns).astype(df.dtypes)
+                filtered_sector_z_scores[sector] = pd.DataFrame(
+                    index=pd.to_datetime([]), columns=df.columns
+                ).astype(df.dtypes)
                 continue
 
             # Assume index is DatetimeIndex
             df_sorted = df.sort_index()
-            ref_loc = df_sorted.index.get_indexer([target_ts], method='ffill')[0]
+            ref_loc = df_sorted.index.get_indexer([target_ts], method="ffill")[0]
 
             if ref_loc == -1:
-                 start_loc = -1
+                start_loc = -1
             else:
                 start_loc = ref_loc - periods_prior
 
@@ -247,8 +271,10 @@ class SectorFundamentals:
                 start_date = df_sorted.index[start_loc]
                 filtered_sector_z_scores[sector] = df_sorted.loc[start_date:].copy()
             else:
-                filtered_sector_z_scores[sector] = pd.DataFrame(index=pd.to_datetime([]), columns=df_sorted.columns).astype(df_sorted.dtypes)
-        
+                filtered_sector_z_scores[sector] = pd.DataFrame(
+                    index=pd.to_datetime([]), columns=df_sorted.columns
+                ).astype(df_sorted.dtypes)
+
         # Cache result for this periods_prior
         self._cached_sector_z_scores[cache_key] = filtered_sector_z_scores
         return filtered_sector_z_scores
@@ -260,9 +286,13 @@ class SectorFundamentals:
         # Assume year is int and month is valid
         return date(year, month, 1).strftime("%Y-%m-%d")
 
-
-    def _get_z_score(self, sector_z_scores: Dict[str, pd.DataFrame], sector: Optional[str],
-                       ticker: str, quarter_start_date: Optional[str]) -> Optional[float]:
+    def _get_z_score(
+        self,
+        sector_z_scores: Dict[str, pd.DataFrame],
+        sector: Optional[str],
+        ticker: str,
+        quarter_start_date: Optional[str],
+    ) -> Optional[float]:
         """Looks up the Z-score for a given ticker, sector, and date. (Internal helper)"""
         # Assume inputs are valid and sector_df exists and is DataFrame
         sector_df = sector_z_scores.get(sector)
@@ -276,8 +306,9 @@ class SectorFundamentals:
                 return None if np.isnan(z_score) else z_score
         return None
 
-
-    def get_signal_details(self, periods_prior: int = 2) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def get_signal_details(
+        self, periods_prior: int = 2
+    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Computes detailed signal dict using filtered Z-scores and instance data.
         Calls get_historical_z_scores() internally.
@@ -291,7 +322,7 @@ class SectorFundamentals:
         # Check cache first for this periods_prior value
         if periods_prior in self._cached_signal_details:
             return self._cached_signal_details[periods_prior]
-            
+
         # --- Get Filtered Z-Scores Internally ---
         filtered_sector_z_scores = self.get_historical_z_scores(periods_prior)
 
@@ -299,7 +330,7 @@ class SectorFundamentals:
         quarterly_data_fixed = self.quarterly_data
         spy_incst_q = self.fin_statements
         etfs_holdings = self.etfs_holdings
-        sector_z_scores = filtered_sector_z_scores # Use the filtered dict
+        sector_z_scores = filtered_sector_z_scores  # Use the filtered dict
 
         # --- Precompute ticker_to_sector mapping ---
         ticker_to_sector: Dict[str, str] = {}
@@ -312,7 +343,7 @@ class SectorFundamentals:
         # --- Main Loop ---
         for ticker, yearly_data in quarterly_data_fixed.items():
             sector = ticker_to_sector.get(ticker)
-            sector_df = sector_z_scores.get(sector) # Look in the filtered results
+            sector_df = sector_z_scores.get(sector)  # Look in the filtered results
 
             # Skip if sector_df is None or empty (implicit check)
             if sector_df is None or sector_df.empty:
@@ -324,7 +355,9 @@ class SectorFundamentals:
                 for quarter_str, report_date_str in quarterly_reports.items():
                     # Assume report_date_str is valid string
 
-                    quarter_start_date_str = self._get_quarter_start_date(year, quarter_str)
+                    quarter_start_date_str = self._get_quarter_start_date(
+                        year, quarter_str
+                    )
                     # Assume quarter_start_date_str is valid
 
                     quarter_start_ts = pd.Timestamp(quarter_start_date_str)
@@ -335,11 +368,16 @@ class SectorFundamentals:
 
                     filing_info = spy_incst_q.get(ticker, {}).get(report_date_str, {})
                     # Assume filing_info is dict or None if not found
-                    filing_date_str = filing_info.get("filing_date") if isinstance(filing_info, dict) else None
-
+                    filing_date_str = (
+                        filing_info.get("filing_date")
+                        if isinstance(filing_info, dict)
+                        else None
+                    )
 
                     # Use internal helper with the filtered Z-scores
-                    z_score = self._get_z_score(sector_z_scores, sector, ticker, quarter_start_date_str)
+                    z_score = self._get_z_score(
+                        sector_z_scores, sector, ticker, quarter_start_date_str
+                    )
 
                     if ticker not in results:
                         results[ticker] = {}
@@ -349,9 +387,9 @@ class SectorFundamentals:
                         results[ticker][report_date_str] = {
                             "filing_date": filing_date_str,
                             "quarter_start_date": quarter_start_date_str,
-                            "z_score": z_score
+                            "z_score": z_score,
                         }
-        
+
         # Cache the result for this periods_prior value
         self._cached_signal_details[periods_prior] = results
         return results
@@ -375,25 +413,29 @@ class SectorFundamentals:
         positions = list(simulator.positions.keys())
 
         if not positions:
-            return {}, {} # No positions to evaluate
+            return {}, {}  # No positions to evaluate
 
         decision_dict: Dict[str, bool] = {}
         details_dict: Dict[str, str] = {}
 
         # --- Get Relevant Signal Details --- Assume valid simulation_start_date and successful call
-        relevant_signals = self.get_signal_details() # Uses default periods_prior=2
+        relevant_signals = self.get_signal_details()  # Uses default periods_prior=2
 
         # --- Convert Evaluation Date --- Assume valid date format
         date_ts = pd.Timestamp(date)
 
         # --- Evaluate Each Position ---
         for asset in positions:
-            decision_dict[asset] = False # Default to Sell
-            details_dict[asset] = "Sell: Default - No keep condition met." # Default detail
+            decision_dict[asset] = False  # Default to Sell
+            details_dict[asset] = (
+                "Sell: Default - No keep condition met."  # Default detail
+            )
 
             # Check if asset has signals
             if asset not in relevant_signals:
-                details_dict[asset] = f"Sell: Ticker '{asset}' not found in relevant signals."
+                details_dict[asset] = (
+                    f"Sell: Ticker '{asset}' not found in relevant signals."
+                )
                 continue
 
             asset_signal_data = relevant_signals[asset]
@@ -403,40 +445,50 @@ class SectorFundamentals:
             valid_filed_signals = []
             for report_date, signal_info in asset_signal_data.items():
                 # Assume signal_info is dict and has 'filing_date'
-                 filing_date_str = signal_info.get('filing_date')
-                 if filing_date_str: # Check if filing_date exists and is not empty/None
-                     filing_date_ts = pd.Timestamp(filing_date_str) # Assume valid format
-                     if filing_date_ts <= date_ts:
-                         valid_filed_signals.append((filing_date_ts, signal_info))
-
+                filing_date_str = signal_info.get("filing_date")
+                if filing_date_str:  # Check if filing_date exists and is not empty/None
+                    filing_date_ts = pd.Timestamp(
+                        filing_date_str
+                    )  # Assume valid format
+                    if filing_date_ts <= date_ts:
+                        valid_filed_signals.append((filing_date_ts, signal_info))
 
             if not valid_filed_signals:
-                details_dict[asset] = f"Sell: No signal for '{asset}' with filing date <= {date}."
+                details_dict[asset] = (
+                    f"Sell: No signal for '{asset}' with filing date <= {date}."
+                )
                 continue
 
             # Get the latest signal based on filing date
             valid_filed_signals.sort(key=lambda item: item[0], reverse=True)
             latest_filing_date_ts, latest_signal_info = valid_filed_signals[0]
-            latest_filing_date_str = latest_filing_date_ts.strftime('%Y-%m-%d')
+            latest_filing_date_str = latest_filing_date_ts.strftime("%Y-%m-%d")
 
-            z_score = latest_signal_info.get('z_score')
+            z_score = latest_signal_info.get("z_score")
 
             # Evaluate Z-score - Assume z_score is float or None/NaN
             if z_score is not None and pd.notna(z_score):
-                 z_score_float = float(z_score) # Assume conversion works
-                 if self.lowerzscore_limit <= z_score_float <= self.upperzscore_limit:
-                     decision_dict[asset] = True
-                     details_dict[asset] = f"Keep: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
-                 else:
-                     details_dict[asset] = f"Sell: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                z_score_float = float(z_score)  # Assume conversion works
+                if self.lowerzscore_limit <= z_score_float <= self.upperzscore_limit:
+                    decision_dict[asset] = True
+                    details_dict[asset] = (
+                        f"Keep: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                    )
+                else:
+                    details_dict[asset] = (
+                        f"Sell: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                    )
             else:
-                 details_dict[asset] = f"Sell: Z-score missing/invalid in latest signal (filing: {latest_filing_date_str})."
-
+                details_dict[asset] = (
+                    f"Sell: Z-score missing/invalid in latest signal (filing: {latest_filing_date_str})."
+                )
 
         return decision_dict, details_dict
-    
+
     # --- Prospect Evaluation Method (Optimized) ---
-    def evaluate_prospects(self, simulator, prospects: List[str], date: str) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    def evaluate_prospects(
+        self, simulator, prospects: List[str], date: str
+    ) -> Tuple[Dict[str, bool], Dict[str, str]]:
         """
         Evaluates potential new investments (prospects) based on the latest signal Z-score
         filed on or before the evaluation date.
@@ -456,7 +508,7 @@ class SectorFundamentals:
 
         # --- Get Relevant Signal Details ---
         # This will now use the cached results if available
-        relevant_signals = self.get_signal_details() 
+        relevant_signals = self.get_signal_details()
 
         # --- Convert Evaluation Date ---
         date_ts = pd.Timestamp(date)
@@ -470,64 +522,81 @@ class SectorFundamentals:
                 # Find signals with filing date <= evaluation date
                 valid_filed_signals = []
                 for report_date, signal_info in asset_signal_data.items():
-                     filing_date_str = signal_info.get('filing_date')
-                     z_score_val = signal_info.get('z_score')
+                    filing_date_str = signal_info.get("filing_date")
+                    z_score_val = signal_info.get("z_score")
 
-                     # Check filing date and z_score existence
-                     if filing_date_str and z_score_val is not None:
-                         try:
-                             filing_date_ts = pd.Timestamp(filing_date_str)
-                             if filing_date_ts <= date_ts:
-                                 valid_filed_signals.append((filing_date_ts, signal_info))
-                         except (ValueError, TypeError):
-                             pass # Skip invalid dates
+                    # Check filing date and z_score existence
+                    if filing_date_str and z_score_val is not None:
+                        try:
+                            filing_date_ts = pd.Timestamp(filing_date_str)
+                            if filing_date_ts <= date_ts:
+                                valid_filed_signals.append(
+                                    (filing_date_ts, signal_info)
+                                )
+                        except (ValueError, TypeError):
+                            pass  # Skip invalid dates
 
                 if valid_filed_signals:
                     # Get the latest signal based on filing date
                     valid_filed_signals.sort(key=lambda item: item[0], reverse=True)
                     latest_filing_date_ts, latest_signal_info = valid_filed_signals[0]
-                    latest_filing_date_str = latest_filing_date_ts.strftime('%Y-%m-%d')
+                    latest_filing_date_str = latest_filing_date_ts.strftime("%Y-%m-%d")
 
-                    z_score = latest_signal_info.get('z_score')
+                    z_score = latest_signal_info.get("z_score")
 
                     try:
                         z_score_float = float(z_score)
-                        if self.lowerzscore_limit <= z_score_float <= self.upperzscore_limit:
-                            decision_dict[asset] = True # Buy the asset
-                            details_dict[asset] = f"Buy: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                        if (
+                            self.lowerzscore_limit
+                            <= z_score_float
+                            <= self.upperzscore_limit
+                        ):
+                            decision_dict[asset] = True  # Buy the asset
+                            details_dict[asset] = (
+                                f"Buy: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                            )
                         else:
-                            decision_dict[asset] = False # Skip: Z-score out of range
-                            details_dict[asset] = f"Skip: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                            decision_dict[asset] = False  # Skip: Z-score out of range
+                            details_dict[asset] = (
+                                f"Skip: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                            )
                     except (ValueError, TypeError):
                         decision_dict[asset] = False
-                        details_dict[asset] = f"Skip: Invalid Z-score for '{asset}' in latest signal (filing: {latest_filing_date_str})."
+                        details_dict[asset] = (
+                            f"Skip: Invalid Z-score for '{asset}' in latest signal (filing: {latest_filing_date_str})."
+                        )
                 else:
                     # No valid signal found before the evaluation date
-                    decision_dict[asset] = False # Default to Skip
-                    details_dict[asset] = f"Skip: No valid signal for '{asset}' with filing date <= {date}."
+                    decision_dict[asset] = False  # Default to Skip
+                    details_dict[asset] = (
+                        f"Skip: No valid signal for '{asset}' with filing date <= {date}."
+                    )
             else:
                 # Asset not found in relevant_signals
                 decision_dict[asset] = False
-                details_dict[asset] = f"Skip: Prospect '{asset}' not in financial data." 
+                details_dict[asset] = f"Skip: Prospect '{asset}' not in financial data."
 
-        return decision_dict, details_dict 
+        return decision_dict, details_dict
+
 
 class Sector_yyqq_Fundamentals:
-    def __init__(self,
-                metric: str,
-                window_size: int,
-                methodology: str,
-                lowerzscore_limit: float,
-                upperzscore_limit: float,
-                # New parameters for pre-processed data
-                fin_statements: dict = None,
-                etfs_holdings: dict = None,
-                tickers_to_check: list = None,
-                quarterly_data: dict = None,
-                filtered_ticker_data: dict = None,
-                # New optional parameter for pruning
-                simulation_start_date: str = None):
-        
+    def __init__(
+        self,
+        metric: str,
+        window_size: int,
+        methodology: str,
+        lowerzscore_limit: float,
+        upperzscore_limit: float,
+        # New parameters for pre-processed data
+        fin_statements: dict = None,
+        etfs_holdings: dict = None,
+        tickers_to_check: list = None,
+        quarterly_data: dict = None,
+        filtered_ticker_data: dict = None,
+        # New optional parameter for pruning
+        simulation_start_date: str = None,
+    ):
+
         self.metric = metric
         self.window_size = window_size  # in years
         self.quarterly_window = window_size * 4  # in quarters
@@ -541,16 +610,15 @@ class Sector_yyqq_Fundamentals:
         self.quarterly_data = quarterly_data
         self.filtered_ticker_data = filtered_ticker_data
         self.simulation_start_date = simulation_start_date
-        
+
         # Add cache attributes
         self._cached_signal_details = {}  # Dictionary to cache results by periods_prior
         self._cached_sector_z_scores = {}  # Cache for z-scores
-        self._cached_growth_data = {}    # Cache for growth data
+        self._cached_growth_data = {}  # Cache for growth data
         self._cached_qoq_growth_data = {}
         self._cached_qoq_std_data = {}
         self._cached_sector_yyqq_data = {}
-        self._cached_yy_qq_ratio = {} # Explicitly initialize this cache too
-     
+        self._cached_yy_qq_ratio = {}  # Explicitly initialize this cache too
 
     def _calculate_metric_growth(self):
         """
@@ -563,7 +631,7 @@ class Sector_yyqq_Fundamentals:
         # Check if we have cached results
         if self._cached_growth_data and len(self._cached_growth_data) > 0:
             return self._cached_growth_data
-            
+
         growth_data_by_date = {}
 
         # Process each quarter in the filtered holdings data
@@ -574,10 +642,14 @@ class Sector_yyqq_Fundamentals:
             year, month = quarter_start_date.year, quarter_start_date.month
 
             # Determine which quarter this belongs to
-            if month <= 3: quarter = "Q1"
-            elif month <= 6: quarter = "Q2"
-            elif month <= 9: quarter = "Q3"
-            else: quarter = "Q4"
+            if month <= 3:
+                quarter = "Q1"
+            elif month <= 6:
+                quarter = "Q2"
+            elif month <= 9:
+                quarter = "Q3"
+            else:
+                quarter = "Q4"
 
             # Past year to compare against
             past_year = year - self.window_size
@@ -591,7 +663,9 @@ class Sector_yyqq_Fundamentals:
                 # Data gathering
                 quarterly_dates_ticker = self.quarterly_data.get(ticker, {})
                 report_date_current = quarterly_dates_ticker.get(year, {}).get(quarter)
-                report_date_past = quarterly_dates_ticker.get(past_year, {}).get(quarter)
+                report_date_past = quarterly_dates_ticker.get(past_year, {}).get(
+                    quarter
+                )
 
                 # Skip if dates are missing (implicit check by subsequent .get)
                 if not report_date_current or not report_date_past:
@@ -620,11 +694,10 @@ class Sector_yyqq_Fundamentals:
 
                 # Store the computed growth
                 growth_data_by_date[quarter_start_str][ticker] = growth
-            
+
         # Cache the calculated data
         self._cached_growth_data = growth_data_by_date
         return growth_data_by_date
-    
 
     def compute_sequential_growth(self):
         """
@@ -640,7 +713,7 @@ class Sector_yyqq_Fundamentals:
             dict: A dictionary with quarter dates as keys and, for each quarter, a dictionary of tickers
                 with their QoQ growth (or None if not computable) as values.
         """
-        
+
         growth_data = {}
 
         for quarter_start_str, tickers in self.filtered_ticker_data.items():
@@ -667,27 +740,55 @@ class Sector_yyqq_Fundamentals:
 
             for ticker in tickers:
                 # Ensure ticker has data in `quarterly_dates`
-                if ticker not in self.quarterly_data or year not in self.quarterly_data[ticker]:
+                if (
+                    ticker not in self.quarterly_data
+                    or year not in self.quarterly_data[ticker]
+                ):
                     continue
 
                 # Get actual report date for this quarter and previous quarter
-                report_date_this_quarter = self.quarterly_data[ticker][year].get(quarter)
-                report_date_prev_quarter = self.quarterly_data[ticker].get(prev_year, {}).get(prev_quarter)
+                report_date_this_quarter = self.quarterly_data[ticker][year].get(
+                    quarter
+                )
+                report_date_prev_quarter = (
+                    self.quarterly_data[ticker].get(prev_year, {}).get(prev_quarter)
+                )
 
                 # Get totalRevenue for the given dates
-                revenue_this_quarter = self.fin_statements.get(ticker, {}).get(report_date_this_quarter, {}).get(self.metric)
-                revenue_prev_quarter = self.fin_statements.get(ticker, {}).get(report_date_prev_quarter, {}).get(self.metric)
+                revenue_this_quarter = (
+                    self.fin_statements.get(ticker, {})
+                    .get(report_date_this_quarter, {})
+                    .get(self.metric)
+                )
+                revenue_prev_quarter = (
+                    self.fin_statements.get(ticker, {})
+                    .get(report_date_prev_quarter, {})
+                    .get(self.metric)
+                )
 
                 # Convert revenue to float
                 try:
-                    revenue_this_quarter = float(revenue_this_quarter) if revenue_this_quarter is not None else None
-                    revenue_prev_quarter = float(revenue_prev_quarter) if revenue_prev_quarter is not None else None
+                    revenue_this_quarter = (
+                        float(revenue_this_quarter)
+                        if revenue_this_quarter is not None
+                        else None
+                    )
+                    revenue_prev_quarter = (
+                        float(revenue_prev_quarter)
+                        if revenue_prev_quarter is not None
+                        else None
+                    )
                 except ValueError:
                     revenue_this_quarter, revenue_prev_quarter = None, None
 
                 # Compute QoQ growth if data is available
-                if revenue_this_quarter is not None and revenue_prev_quarter not in (None, 0):
-                    growth = (revenue_this_quarter - revenue_prev_quarter) / revenue_prev_quarter
+                if revenue_this_quarter is not None and revenue_prev_quarter not in (
+                    None,
+                    0,
+                ):
+                    growth = (
+                        revenue_this_quarter - revenue_prev_quarter
+                    ) / revenue_prev_quarter
                 else:
                     growth = None
 
@@ -697,7 +798,6 @@ class Sector_yyqq_Fundamentals:
         self._cached_qoq_growth_data = growth_data
 
         return growth_data
-
 
     def compute_qoq_std(self):
         """
@@ -716,7 +816,11 @@ class Sector_yyqq_Fundamentals:
         if self._cached_qoq_std_data and len(self._cached_qoq_std_data) > 0:
             return self._cached_qoq_std_data
         std_data = {}
-        tickers = set(ticker for growths in self._cached_qoq_growth_data.values() for ticker in growths)
+        tickers = set(
+            ticker
+            for growths in self._cached_qoq_growth_data.values()
+            for ticker in growths
+        )
 
         # Convert dictionary to a sorted list of dates
         sorted_dates = sorted(self._cached_qoq_growth_data.keys())
@@ -727,78 +831,83 @@ class Sector_yyqq_Fundamentals:
                 # Get the last `window` QoQ growth values for this ticker
                 last_values = [
                     self._cached_qoq_growth_data[q][ticker]
-                    for q in sorted_dates if q <= quarter_start_str and ticker in self._cached_qoq_growth_data[q]
-                ][-self.quarterly_window:]  # Take last `window` values
+                    for q in sorted_dates
+                    if q <= quarter_start_str
+                    and ticker in self._cached_qoq_growth_data[q]
+                ][
+                    -self.quarterly_window :
+                ]  # Take last `window` values
 
                 # Compute standard deviation if there are at least 2 values
                 if len(last_values) >= 2 and all(v is not None for v in last_values):
-                    std_data[quarter_start_str][ticker] = np.std(last_values, ddof=1)  # Sample standard deviation
+                    std_data[quarter_start_str][ticker] = np.std(
+                        last_values, ddof=1
+                    )  # Sample standard deviation
                 else:
                     std_data[quarter_start_str][ticker] = None
-        
+
         self._cached_qoq_std_data = std_data
 
         return std_data
 
-
     def compute_yy_qq_ratio(self):
         """
         Computes the ratio of yearly growth to quarter-over-quarter standard deviation.
-        
-        This ratio indicates how significant the yearly growth is compared to the 
+
+        This ratio indicates how significant the yearly growth is compared to the
         quarterly volatility of the metric.
-        
+
         Returns:
             dict: Dictionary structured as { 'YYYY-MM-DD': {'TICKER1': ratio, ...}, ... }
                 where ratio is yearly_growth / qoq_std or None if data is missing/invalid
         """
         # Check for cached results (Check if dict is non-empty)
-        if hasattr(self, '_cached_yy_qq_ratio') and self._cached_yy_qq_ratio: 
-            print("Debug: Returning cached yy_qq_ratio data.") # Added debug print
+        if hasattr(self, "_cached_yy_qq_ratio") and self._cached_yy_qq_ratio:
+            print("Debug: Returning cached yy_qq_ratio data.")  # Added debug print
             return self._cached_yy_qq_ratio
-        
-        print("Debug: Calculating yy_qq_ratio (cache empty or not found).") # Added debug print
+
+        print(
+            "Debug: Calculating yy_qq_ratio (cache empty or not found)."
+        )  # Added debug print
         # Get yearly growth data
         yearly_growth = self._calculate_metric_growth()
-        
+
         # Ensure sequential growth is computed first
         if not self._cached_qoq_growth_data or len(self._cached_qoq_growth_data) == 0:
             self.compute_sequential_growth()
 
         # Get QoQ standard deviation data
         qoq_std = self.compute_qoq_std()
-        
+
         ratio_data = {}
-        
+
         # Process each date in the data
         for date in yearly_growth:
             if date not in qoq_std:
                 continue
-                
+
             ratio_data[date] = {}
-            
+
             # Process each ticker for this date
             for ticker in yearly_growth[date]:
                 if ticker not in qoq_std[date]:
                     continue
-                    
+
                 growth = yearly_growth[date][ticker]
                 std = qoq_std[date][ticker]
-                
+
                 # Handle None values and division by zero
                 if growth is None or std is None or std == 0:
                     ratio = None
                 else:
                     ratio = growth / std
-                    
+
                 ratio_data[date][ticker] = ratio
-        
+
         # Cache the calculated ratios
         self._cached_yy_qq_ratio = ratio_data
-        
+
         return ratio_data
-
-
 
     def get_sector_yyqq_data(self):
         """
@@ -809,14 +918,19 @@ class Sector_yyqq_Fundamentals:
                 with growth data for the specified metric.
         """
         # Check if SECTOR data is cached (Check if dict is non-empty)
-        if hasattr(self, '_cached_sector_yyqq_data') and self._cached_sector_yyqq_data:
+        if hasattr(self, "_cached_sector_yyqq_data") and self._cached_sector_yyqq_data:
             print("Debug: Returning cached sector yyqq data.")
             return self._cached_sector_yyqq_data
-            
+
         # If cache exists but is empty, print a message. If it doesn't exist, this won't trigger.
-        if hasattr(self, '_cached_sector_yyqq_data') and not self._cached_sector_yyqq_data:
-             print("Debug: Cache _cached_sector_yyqq_data exists but is empty. Proceeding with calculation.")
-            
+        if (
+            hasattr(self, "_cached_sector_yyqq_data")
+            and not self._cached_sector_yyqq_data
+        ):
+            print(
+                "Debug: Cache _cached_sector_yyqq_data exists but is empty. Proceeding with calculation."
+            )
+
         sector_yyqq_data = {}
         print("Debug: Initialized empty sector_yyqq_data.")
 
@@ -829,21 +943,22 @@ class Sector_yyqq_Fundamentals:
         try:
             # Check if it's a dict and not empty before slicing
             if isinstance(yyqq_dict, dict) and yyqq_dict:
-                print(dict(list(yyqq_dict.items())[:5])) 
+                print(dict(list(yyqq_dict.items())[:5]))
             elif isinstance(yyqq_dict, dict):
                 print("Debug: yyqq_dict is an empty dictionary.")
             else:
                 print(f"Debug: yyqq_dict is not a dictionary? Type: {type(yyqq_dict)}")
-                print(yyqq_dict) # Print the actual content if not a dict
+                print(yyqq_dict)  # Print the actual content if not a dict
         except Exception as e:
             print(f"Debug: Error inspecting yyqq_dict structure: {e}")
             print(f"Debug: yyqq_dict type: {type(yyqq_dict)}")
 
-
         # 2. Convert the growth dictionary to a DataFrame
         if not yyqq_dict or not isinstance(yyqq_dict, dict):
-            print("Debug: yyqq_dict is empty or not a dict. Returning empty sector data.")
-            self._cached_sector_yyqq_data = {} # Ensure cache is empty dict
+            print(
+                "Debug: yyqq_dict is empty or not a dict. Returning empty sector data."
+            )
+            self._cached_sector_yyqq_data = {}  # Ensure cache is empty dict
             return {}
 
         try:
@@ -862,10 +977,11 @@ class Sector_yyqq_Fundamentals:
             self._cached_sector_yyqq_data = {}
             return {}
 
-
         try:
             print("\nDebug: Converting df_yyqq index to datetime...")
-            df_yyqq.index = pd.to_datetime(df_yyqq.index) # Convert index to DatetimeIndex
+            df_yyqq.index = pd.to_datetime(
+                df_yyqq.index
+            )  # Convert index to DatetimeIndex
             print("Debug: Index conversion successful.")
             print("\nDebug: df_yyqq head AFTER date conversion:")
             print(df_yyqq.head())
@@ -874,23 +990,24 @@ class Sector_yyqq_Fundamentals:
             print("Debug: df_yyqq index values before conversion attempt:")
             print(df_yyqq.index)
             # Decide how to handle error - returning empty dict for safety
-            self._cached_sector_yyqq_data = {} 
+            self._cached_sector_yyqq_data = {}
             return {}
-
 
         # 3. Process each sector
         print("\nDebug: Starting sector processing loop...")
         for sector, tickers in self.etfs_holdings.items():
             print(f"\n--- Processing Sector: {sector} ---")
             # Limit printing tickers if list is long
-            print(f"Debug: Tickers in sector (first 5 shown): {tickers[:5]}...") 
+            print(f"Debug: Tickers in sector (first 5 shown): {tickers[:5]}...")
 
             # Find tickers present in both the sector list and the DataFrame columns
             df_columns = list(df_yyqq.columns)
-            print(f"Debug: df_yyqq columns (first 10 shown): {df_columns[:10]}...") 
+            print(f"Debug: df_yyqq columns (first 10 shown): {df_columns[:10]}...")
             common_tickers = list(set(tickers).intersection(df_columns))
             # Limit printing common tickers if list is long
-            print(f"Debug: Common tickers found (first 10 shown): {common_tickers[:10]}...")
+            print(
+                f"Debug: Common tickers found (first 10 shown): {common_tickers[:10]}..."
+            )
 
             # Skip if no common tickers
             if not common_tickers:
@@ -901,32 +1018,40 @@ class Sector_yyqq_Fundamentals:
             print(f"Debug: Extracting data for {len(common_tickers)} common tickers...")
             try:
                 df_sector = df_yyqq[common_tickers].copy()
-                print(f"Debug: df_sector shape for {sector} BEFORE dropna: {df_sector.shape}")
+                print(
+                    f"Debug: df_sector shape for {sector} BEFORE dropna: {df_sector.shape}"
+                )
                 # print(f"Debug: df_sector head for {sector} BEFORE dropna:") # Optional: uncomment for more detail
                 # print(df_sector.head())
             except Exception as e:
                 print(f"Debug: Error selecting common tickers for sector {sector}: {e}")
-                continue # Skip to next sector if selection fails
+                continue  # Skip to next sector if selection fails
 
-            
             print(f"Debug: Dropping rows with all NaNs for sector {sector}...")
             try:
-                df_sector.dropna(how='all', inplace=True) # Drop rows where all values are NaN
-                print(f"Debug: df_sector shape for {sector} AFTER dropna: {df_sector.shape}")
+                df_sector.dropna(
+                    how="all", inplace=True
+                )  # Drop rows where all values are NaN
+                print(
+                    f"Debug: df_sector shape for {sector} AFTER dropna: {df_sector.shape}"
+                )
                 # print(f"Debug: df_sector head for {sector} AFTER dropna:") # Optional: uncomment for more detail
                 # print(df_sector.head())
             except Exception as e:
                 print(f"Debug: Error during dropna for sector {sector}: {e}")
-                continue # Skip storing if dropna fails
-
+                continue  # Skip storing if dropna fails
 
             # Store the sector DataFrame if it's not empty
             if not df_sector.empty:
-                print(f"Debug: Storing data for sector {sector} (Shape: {df_sector.shape})")
+                print(
+                    f"Debug: Storing data for sector {sector} (Shape: {df_sector.shape})"
+                )
                 sector_yyqq_data[sector] = df_sector
             else:
-                print(f"Debug: df_sector for {sector} is empty after dropna. Not storing.")
-        
+                print(
+                    f"Debug: df_sector for {sector} is empty after dropna. Not storing."
+                )
+
         # Cache the result
         print("\nDebug: Finished processing all sectors.")
         print(f"Debug: Final sector_yyqq_data keys: {list(sector_yyqq_data.keys())}")
@@ -943,9 +1068,12 @@ class Sector_yyqq_Fundamentals:
                   with computed Z-scores for that sector.
         """
         # Check cache first
-        if hasattr(self, '_cached_sector_z_scores_result') and self._cached_sector_z_scores_result is not None:
+        if (
+            hasattr(self, "_cached_sector_z_scores_result")
+            and self._cached_sector_z_scores_result is not None
+        ):
             return self._cached_sector_z_scores_result
-            
+
         sector_z_scores = {}
 
         # Call internal method to get growth data
@@ -955,17 +1083,19 @@ class Sector_yyqq_Fundamentals:
         for sector, df_sector in sector_yyqq_data.items():
             # Skip empty DataFrames implicitly by subsequent operations
 
-            df_sector_numeric = df_sector.apply(pd.to_numeric, errors='coerce').copy()
+            df_sector_numeric = df_sector.apply(pd.to_numeric, errors="coerce").copy()
 
             sector_mean = df_sector_numeric.mean(axis=1, skipna=True)
             sector_std = df_sector_numeric.std(axis=1, skipna=True)
 
-            z_scores = df_sector_numeric.sub(sector_mean, axis=0).div(sector_std, axis=0)
+            z_scores = df_sector_numeric.sub(sector_mean, axis=0).div(
+                sector_std, axis=0
+            )
             z_scores.replace([np.inf, -np.inf], np.nan, inplace=True)
 
             if not z_scores.empty:
                 sector_z_scores[sector] = z_scores
-        
+
         # Cache the result
         self._cached_sector_z_scores_result = sector_z_scores
         return sector_z_scores
@@ -988,7 +1118,7 @@ class Sector_yyqq_Fundamentals:
         cache_key = f"historical_z_scores_{periods_prior}"
         if cache_key in self._cached_sector_z_scores:
             return self._cached_sector_z_scores[cache_key]
-            
+
         target_date_str = self.simulation_start_date
         filtered_sector_z_scores = {}
 
@@ -1000,15 +1130,17 @@ class Sector_yyqq_Fundamentals:
         for sector, df in sector_z_scores.items():
             # Skip empty DFs implicitly
             if df.empty:
-                filtered_sector_z_scores[sector] = pd.DataFrame(index=pd.to_datetime([]), columns=df.columns).astype(df.dtypes)
+                filtered_sector_z_scores[sector] = pd.DataFrame(
+                    index=pd.to_datetime([]), columns=df.columns
+                ).astype(df.dtypes)
                 continue
 
             # Assume index is DatetimeIndex
             df_sorted = df.sort_index()
-            ref_loc = df_sorted.index.get_indexer([target_ts], method='ffill')[0]
+            ref_loc = df_sorted.index.get_indexer([target_ts], method="ffill")[0]
 
             if ref_loc == -1:
-                 start_loc = -1
+                start_loc = -1
             else:
                 start_loc = ref_loc - periods_prior
 
@@ -1016,8 +1148,10 @@ class Sector_yyqq_Fundamentals:
                 start_date = df_sorted.index[start_loc]
                 filtered_sector_z_scores[sector] = df_sorted.loc[start_date:].copy()
             else:
-                filtered_sector_z_scores[sector] = pd.DataFrame(index=pd.to_datetime([]), columns=df_sorted.columns).astype(df_sorted.dtypes)
-        
+                filtered_sector_z_scores[sector] = pd.DataFrame(
+                    index=pd.to_datetime([]), columns=df_sorted.columns
+                ).astype(df_sorted.dtypes)
+
         # Cache result for this periods_prior
         self._cached_sector_z_scores[cache_key] = filtered_sector_z_scores
         return filtered_sector_z_scores
@@ -1029,9 +1163,13 @@ class Sector_yyqq_Fundamentals:
         # Assume year is int and month is valid
         return date(year, month, 1).strftime("%Y-%m-%d")
 
-
-    def _get_z_score(self, sector_z_scores: Dict[str, pd.DataFrame], sector: Optional[str],
-                       ticker: str, quarter_start_date: Optional[str]) -> Optional[float]:
+    def _get_z_score(
+        self,
+        sector_z_scores: Dict[str, pd.DataFrame],
+        sector: Optional[str],
+        ticker: str,
+        quarter_start_date: Optional[str],
+    ) -> Optional[float]:
         """Looks up the Z-score for a given ticker, sector, and date. (Internal helper)"""
         # Assume inputs are valid and sector_df exists and is DataFrame
         sector_df = sector_z_scores.get(sector)
@@ -1045,8 +1183,9 @@ class Sector_yyqq_Fundamentals:
                 return None if np.isnan(z_score) else z_score
         return None
 
-
-    def get_signal_details(self, periods_prior: int = 2) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def get_signal_details(
+        self, periods_prior: int = 2
+    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Computes detailed signal dict using filtered Z-scores and instance data.
         Calls get_historical_z_scores() internally.
@@ -1060,7 +1199,7 @@ class Sector_yyqq_Fundamentals:
         # Check cache first for this periods_prior value
         if periods_prior in self._cached_signal_details:
             return self._cached_signal_details[periods_prior]
-            
+
         # --- Get Filtered Z-Scores Internally ---
         filtered_sector_z_scores = self.get_historical_z_scores(periods_prior)
 
@@ -1068,7 +1207,7 @@ class Sector_yyqq_Fundamentals:
         quarterly_data_fixed = self.quarterly_data
         spy_incst_q = self.fin_statements
         etfs_holdings = self.etfs_holdings
-        sector_z_scores = filtered_sector_z_scores # Use the filtered dict
+        sector_z_scores = filtered_sector_z_scores  # Use the filtered dict
 
         # --- Precompute ticker_to_sector mapping ---
         ticker_to_sector: Dict[str, str] = {}
@@ -1081,7 +1220,7 @@ class Sector_yyqq_Fundamentals:
         # --- Main Loop ---
         for ticker, yearly_data in quarterly_data_fixed.items():
             sector = ticker_to_sector.get(ticker)
-            sector_df = sector_z_scores.get(sector) # Look in the filtered results
+            sector_df = sector_z_scores.get(sector)  # Look in the filtered results
 
             # Skip if sector_df is None or empty (implicit check)
             if sector_df is None or sector_df.empty:
@@ -1093,7 +1232,9 @@ class Sector_yyqq_Fundamentals:
                 for quarter_str, report_date_str in quarterly_reports.items():
                     # Assume report_date_str is valid string
 
-                    quarter_start_date_str = self._get_quarter_start_date(year, quarter_str)
+                    quarter_start_date_str = self._get_quarter_start_date(
+                        year, quarter_str
+                    )
                     # Assume quarter_start_date_str is valid
 
                     quarter_start_ts = pd.Timestamp(quarter_start_date_str)
@@ -1104,11 +1245,16 @@ class Sector_yyqq_Fundamentals:
 
                     filing_info = spy_incst_q.get(ticker, {}).get(report_date_str, {})
                     # Assume filing_info is dict or None if not found
-                    filing_date_str = filing_info.get("filing_date") if isinstance(filing_info, dict) else None
-
+                    filing_date_str = (
+                        filing_info.get("filing_date")
+                        if isinstance(filing_info, dict)
+                        else None
+                    )
 
                     # Use internal helper with the filtered Z-scores
-                    z_score = self._get_z_score(sector_z_scores, sector, ticker, quarter_start_date_str)
+                    z_score = self._get_z_score(
+                        sector_z_scores, sector, ticker, quarter_start_date_str
+                    )
 
                     if ticker not in results:
                         results[ticker] = {}
@@ -1118,9 +1264,9 @@ class Sector_yyqq_Fundamentals:
                         results[ticker][report_date_str] = {
                             "filing_date": filing_date_str,
                             "quarter_start_date": quarter_start_date_str,
-                            "z_score": z_score
+                            "z_score": z_score,
                         }
-        
+
         # Cache the result for this periods_prior value
         self._cached_signal_details[periods_prior] = results
         return results
@@ -1144,25 +1290,29 @@ class Sector_yyqq_Fundamentals:
         positions = list(simulator.positions.keys())
 
         if not positions:
-            return {}, {} # No positions to evaluate
+            return {}, {}  # No positions to evaluate
 
         decision_dict: Dict[str, bool] = {}
         details_dict: Dict[str, str] = {}
 
         # --- Get Relevant Signal Details --- Assume valid simulation_start_date and successful call
-        relevant_signals = self.get_signal_details() # Uses default periods_prior=2
+        relevant_signals = self.get_signal_details()  # Uses default periods_prior=2
 
         # --- Convert Evaluation Date --- Assume valid date format
         date_ts = pd.Timestamp(date)
 
         # --- Evaluate Each Position ---
         for asset in positions:
-            decision_dict[asset] = False # Default to Sell
-            details_dict[asset] = "Sell: Default - No keep condition met." # Default detail
+            decision_dict[asset] = False  # Default to Sell
+            details_dict[asset] = (
+                "Sell: Default - No keep condition met."  # Default detail
+            )
 
             # Check if asset has signals
             if asset not in relevant_signals:
-                details_dict[asset] = f"Sell: Ticker '{asset}' not found in relevant signals."
+                details_dict[asset] = (
+                    f"Sell: Ticker '{asset}' not found in relevant signals."
+                )
                 continue
 
             asset_signal_data = relevant_signals[asset]
@@ -1172,40 +1322,50 @@ class Sector_yyqq_Fundamentals:
             valid_filed_signals = []
             for report_date, signal_info in asset_signal_data.items():
                 # Assume signal_info is dict and has 'filing_date'
-                 filing_date_str = signal_info.get('filing_date')
-                 if filing_date_str: # Check if filing_date exists and is not empty/None
-                     filing_date_ts = pd.Timestamp(filing_date_str) # Assume valid format
-                     if filing_date_ts <= date_ts:
-                         valid_filed_signals.append((filing_date_ts, signal_info))
-
+                filing_date_str = signal_info.get("filing_date")
+                if filing_date_str:  # Check if filing_date exists and is not empty/None
+                    filing_date_ts = pd.Timestamp(
+                        filing_date_str
+                    )  # Assume valid format
+                    if filing_date_ts <= date_ts:
+                        valid_filed_signals.append((filing_date_ts, signal_info))
 
             if not valid_filed_signals:
-                details_dict[asset] = f"Sell: No signal for '{asset}' with filing date <= {date}."
+                details_dict[asset] = (
+                    f"Sell: No signal for '{asset}' with filing date <= {date}."
+                )
                 continue
 
             # Get the latest signal based on filing date
             valid_filed_signals.sort(key=lambda item: item[0], reverse=True)
             latest_filing_date_ts, latest_signal_info = valid_filed_signals[0]
-            latest_filing_date_str = latest_filing_date_ts.strftime('%Y-%m-%d')
+            latest_filing_date_str = latest_filing_date_ts.strftime("%Y-%m-%d")
 
-            z_score = latest_signal_info.get('z_score')
+            z_score = latest_signal_info.get("z_score")
 
             # Evaluate Z-score - Assume z_score is float or None/NaN
             if z_score is not None and pd.notna(z_score):
-                 z_score_float = float(z_score) # Assume conversion works
-                 if self.lowerzscore_limit <= z_score_float <= self.upperzscore_limit:
-                     decision_dict[asset] = True
-                     details_dict[asset] = f"Keep: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
-                 else:
-                     details_dict[asset] = f"Sell: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                z_score_float = float(z_score)  # Assume conversion works
+                if self.lowerzscore_limit <= z_score_float <= self.upperzscore_limit:
+                    decision_dict[asset] = True
+                    details_dict[asset] = (
+                        f"Keep: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                    )
+                else:
+                    details_dict[asset] = (
+                        f"Sell: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                    )
             else:
-                 details_dict[asset] = f"Sell: Z-score missing/invalid in latest signal (filing: {latest_filing_date_str})."
-
+                details_dict[asset] = (
+                    f"Sell: Z-score missing/invalid in latest signal (filing: {latest_filing_date_str})."
+                )
 
         return decision_dict, details_dict
-    
+
     # --- Prospect Evaluation Method (Optimized) ---
-    def evaluate_prospects(self, simulator, prospects: List[str], date: str) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    def evaluate_prospects(
+        self, simulator, prospects: List[str], date: str
+    ) -> Tuple[Dict[str, bool], Dict[str, str]]:
         """
         Evaluates potential new investments (prospects) based on the latest signal Z-score
         filed on or before the evaluation date.
@@ -1225,7 +1385,7 @@ class Sector_yyqq_Fundamentals:
 
         # --- Get Relevant Signal Details ---
         # This will now use the cached results if available
-        relevant_signals = self.get_signal_details() 
+        relevant_signals = self.get_signal_details()
 
         # --- Convert Evaluation Date ---
         date_ts = pd.Timestamp(date)
@@ -1239,48 +1399,61 @@ class Sector_yyqq_Fundamentals:
                 # Find signals with filing date <= evaluation date
                 valid_filed_signals = []
                 for report_date, signal_info in asset_signal_data.items():
-                     filing_date_str = signal_info.get('filing_date')
-                     z_score_val = signal_info.get('z_score')
+                    filing_date_str = signal_info.get("filing_date")
+                    z_score_val = signal_info.get("z_score")
 
-                     # Check filing date and z_score existence
-                     if filing_date_str and z_score_val is not None:
-                         try:
-                             filing_date_ts = pd.Timestamp(filing_date_str)
-                             if filing_date_ts <= date_ts:
-                                 valid_filed_signals.append((filing_date_ts, signal_info))
-                         except (ValueError, TypeError):
-                             pass # Skip invalid dates
+                    # Check filing date and z_score existence
+                    if filing_date_str and z_score_val is not None:
+                        try:
+                            filing_date_ts = pd.Timestamp(filing_date_str)
+                            if filing_date_ts <= date_ts:
+                                valid_filed_signals.append(
+                                    (filing_date_ts, signal_info)
+                                )
+                        except (ValueError, TypeError):
+                            pass  # Skip invalid dates
 
                 if valid_filed_signals:
                     # Get the latest signal based on filing date
                     valid_filed_signals.sort(key=lambda item: item[0], reverse=True)
                     latest_filing_date_ts, latest_signal_info = valid_filed_signals[0]
-                    latest_filing_date_str = latest_filing_date_ts.strftime('%Y-%m-%d')
+                    latest_filing_date_str = latest_filing_date_ts.strftime("%Y-%m-%d")
 
-                    z_score = latest_signal_info.get('z_score')
+                    z_score = latest_signal_info.get("z_score")
 
                     try:
                         z_score_float = float(z_score)
-                        if self.lowerzscore_limit <= z_score_float <= self.upperzscore_limit:
-                            decision_dict[asset] = True # Buy the asset
-                            details_dict[asset] = f"Buy: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                        if (
+                            self.lowerzscore_limit
+                            <= z_score_float
+                            <= self.upperzscore_limit
+                        ):
+                            decision_dict[asset] = True  # Buy the asset
+                            details_dict[asset] = (
+                                f"Buy: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) in range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                            )
                         else:
-                            decision_dict[asset] = False # Skip: Z-score out of range
-                            details_dict[asset] = f"Skip: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                            decision_dict[asset] = False  # Skip: Z-score out of range
+                            details_dict[asset] = (
+                                f"Skip: Z={z_score_float:.2f} (filing: {latest_filing_date_str}) out of range [{self.lowerzscore_limit:.2f}, {self.upperzscore_limit:.2f}]."
+                            )
                     except (ValueError, TypeError):
                         decision_dict[asset] = False
-                        details_dict[asset] = f"Skip: Invalid Z-score for '{asset}' in latest signal (filing: {latest_filing_date_str})."
+                        details_dict[asset] = (
+                            f"Skip: Invalid Z-score for '{asset}' in latest signal (filing: {latest_filing_date_str})."
+                        )
                 else:
                     # No valid signal found before the evaluation date
-                    decision_dict[asset] = False # Default to Skip
-                    details_dict[asset] = f"Skip: No valid signal for '{asset}' with filing date <= {date}."
+                    decision_dict[asset] = False  # Default to Skip
+                    details_dict[asset] = (
+                        f"Skip: No valid signal for '{asset}' with filing date <= {date}."
+                    )
             else:
                 # Asset not found in relevant_signals
                 decision_dict[asset] = False
-                details_dict[asset] = f"Skip: Prospect '{asset}' not in financial data." 
+                details_dict[asset] = f"Skip: Prospect '{asset}' not in financial data."
 
         return decision_dict, details_dict
-    
 
 
 class TrailingStopSMA:
@@ -1799,6 +1972,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from scipy.stats import norm
 
+
 class PortfolioEvaluator:
     def __init__(
         self, benchmark_series, risk_free_rate=0.0, confidence_level=0.95, threshold=0
@@ -2229,12 +2403,20 @@ class PortfolioEvaluator:
         kurtosis = self._Kurtosis(df_equity=df)
         volatility_ann_percent = self.Volatility_Ann_Percent(df_equity=df)
         conditional_var_cvar = self._Conditional_Value_at_Risk_VaR(df_equity=df)
-        cumulative_return_percent = ((final_value - initial_value) / initial_value) * 100
-        self.cumulative_return_percent = cumulative_return_percent # Use the snake_case variable here
+        cumulative_return_percent = (
+            (final_value - initial_value) / initial_value
+        ) * 100
+        self.cumulative_return_percent = (
+            cumulative_return_percent  # Use the snake_case variable here
+        )
         calmar = cagr_percentage / abs(max_drawdown) if max_drawdown != 0 else None
         treynor_index = self._calculate_treynor_index(df_equity=df)
         beta = self._calculate_beta(df_equity=df)
-        recovery_factor = abs(cumulative_return_percent) / abs(max_drawdown) if max_drawdown != 0 else None # Use snake_case here
+        recovery_factor = (
+            abs(cumulative_return_percent) / abs(max_drawdown)
+            if max_drawdown != 0
+            else None
+        )  # Use snake_case here
         risk_parity = self._calculate_risk_parity(df_equity=df)
         MDD_mean = self._calculate_MDD_mean(df_equity=df)
         MDD_Recovery_time = self._MDD_Recovery_Time(df_equity=df)
@@ -2252,13 +2434,15 @@ class PortfolioEvaluator:
         hit_rate = (returns > 0).sum() / len(returns) * 100
         equity_start_date = self.equity_data.index[0].strftime("%Y-%m-%d")
 
-        benchmark_df = self.benchmark_series.copy() # Keep as DataFrame initially
+        benchmark_df = self.benchmark_series.copy()  # Keep as DataFrame initially
         benchmark_df = benchmark_df.loc[benchmark_df.index >= equity_start_date]
 
         benchmark_series = benchmark_df["spy"]
 
         # Now calculate using the Series - results will be scalar
-        benchmark_cumulative_return = ((benchmark_series.iloc[-1] / benchmark_series.iloc[0]) - 1) * 100
+        benchmark_cumulative_return = (
+            (benchmark_series.iloc[-1] / benchmark_series.iloc[0]) - 1
+        ) * 100
         self.benchmark_cumulative_return = benchmark_cumulative_return
 
         metrics = {}
@@ -2285,7 +2469,9 @@ class PortfolioEvaluator:
         metrics["skew"] = skew
         metrics["kurtosis"] = kurtosis
         metrics["recovery_factor"] = recovery_factor
-        metrics["sp500_cumulative_return_percent"] = benchmark_cumulative_return # Use corrected name
+        metrics["sp500_cumulative_return_percent"] = (
+            benchmark_cumulative_return  # Use corrected name
+        )
         metrics["treynor_index"] = treynor_index
         metrics["beta"] = beta
         metrics["alpha"] = self._calculate_alpha(equity_df=df)
@@ -2301,14 +2487,16 @@ class PortfolioEvaluator:
     def _calculate_alpha(self, equity_df):
 
         beta = self._calculate_beta(df_equity=equity_df)
-        
+
         # Handle NaN values for beta or benchmark return (already snake_case)
         if pd.isna(beta) or pd.isna(self.benchmark_cumulative_return):
             return np.nan
         # Use snake_case attributes
-        alpha = self.cumulative_return_percent - (self.risk_free_rate + beta * (self.benchmark_cumulative_return - self.risk_free_rate))
+        alpha = self.cumulative_return_percent - (
+            self.risk_free_rate
+            + beta * (self.benchmark_cumulative_return - self.risk_free_rate)
+        )
         return alpha
-
 
     def _Conditional_Value_at_Risk_VaR(self, df_equity, horizon=1):
         """
@@ -2391,7 +2579,6 @@ class PortfolioEvaluator:
         # Return skewness (Fisher definition, normal = 0)
         return returns.skew()
 
-
     def _Kurtosis(self, df_equity):
         """
         Compute the excess kurtosis of the return distribution from an equity curve.
@@ -2421,7 +2608,6 @@ class PortfolioEvaluator:
 
         # Return excess kurtosis (Fisher definition, normal = 0)
         return returns.kurtosis()
-
 
     def Volatility_Ann_Percent(self, df_equity, periods_per_year=252):
         """
@@ -2465,7 +2651,6 @@ class PortfolioEvaluator:
         # Return as percentage
         return vol_ann * 100
 
-
     def _Sortino_ratio(self, df_equity, periods_per_year=252):
         """
         Compute the annualized Sortino ratio from an equity curve.
@@ -2507,7 +2692,7 @@ class PortfolioEvaluator:
 
         # Downside deviation: root mean square of negative excess returns
         downside_returns = np.minimum(excess_returns, 0)
-        downside_std = np.sqrt((downside_returns ** 2).mean())
+        downside_std = np.sqrt((downside_returns**2).mean())
 
         # Avoid division by zero if no downside volatility
         if downside_std == 0 or np.isnan(downside_std):
@@ -2517,8 +2702,6 @@ class PortfolioEvaluator:
         sortino = (mean_excess / downside_std) * np.sqrt(periods_per_year)
 
         return sortino
-
-
 
     def _Sharpe_ratio(self, df_equity, periods_per_year=252):
         """
@@ -2616,7 +2799,6 @@ class PortfolioEvaluator:
 
         return var
 
-
     def _maximum_drawdown(self, df_equity):
         """
         Compute the maximum drawdown of an equity time series.
@@ -2649,14 +2831,12 @@ class PortfolioEvaluator:
         # Drawdown series: (current_value − running_max) / running_max
         # Handle potential division by zero if running_max is 0
         drawdowns = (equity - running_max) / running_max.replace(0, np.nan)
-        drawdowns.fillna(0, inplace=True) # Fill NaNs resulting from division by zero
+        drawdowns.fillna(0, inplace=True)  # Fill NaNs resulting from division by zero
 
         # Maximum drawdown is the minimum of the drawdown series (most negative)
         max_dd = -drawdowns.min()
 
         return max_dd
-
-
 
     def _calculate_treynor_index(self, df_equity):
 
@@ -2675,7 +2855,9 @@ class PortfolioEvaluator:
         if merged_data.empty:
             return np.nan
 
-        beta = self._calculate_beta(df_equity) # Recalculate beta based on potentially aligned data
+        beta = self._calculate_beta(
+            df_equity
+        )  # Recalculate beta based on potentially aligned data
 
         # Calculate annualized returns
         equity_return_annualized = (1 + merged_data["return_equity"].mean()) ** 252 - 1
@@ -2685,7 +2867,7 @@ class PortfolioEvaluator:
 
         # Calculate the Treynor Index
         if beta == 0 or np.isnan(beta):
-             return np.nan # Avoid division by zero or NaN beta
+            return np.nan  # Avoid division by zero or NaN beta
         treynor_index = excess_return / beta
 
         return treynor_index
@@ -2709,14 +2891,16 @@ class PortfolioEvaluator:
             return np.nan
 
         # Calculate covariance between equity and SPY returns
-        covariance = np.cov(merged_data["return_equity"], merged_data["return_spy"], ddof=1)[
+        covariance = np.cov(
+            merged_data["return_equity"], merged_data["return_spy"], ddof=1
+        )[
             0, 1
-        ] # Ensure ddof=1 for sample covariance
+        ]  # Ensure ddof=1 for sample covariance
 
         variance = np.var(merged_data["return_spy"], ddof=1)
 
         if variance == 0 or np.isnan(variance):
-            return np.nan # Avoid division by zero or NaN variance
+            return np.nan  # Avoid division by zero or NaN variance
 
         beta = round(covariance / variance, 2)
 
@@ -2741,12 +2925,19 @@ class PortfolioEvaluator:
             return np.nan
 
         # Calculate volatility (standard deviation of returns)
-        volatility_spy = np.std(merged_data["return_spy"], ddof=1) # Use sample std dev
-        volatility_equity = np.std(merged_data["return_equity"], ddof=1) # Use sample std dev
+        volatility_spy = np.std(merged_data["return_spy"], ddof=1)  # Use sample std dev
+        volatility_equity = np.std(
+            merged_data["return_equity"], ddof=1
+        )  # Use sample std dev
 
         # Avoid division by zero or NaN volatility
-        if volatility_spy == 0 or volatility_equity == 0 or np.isnan(volatility_spy) or np.isnan(volatility_equity):
-            return np.nan # Or handle as appropriate, e.g., assign 0 or 100%
+        if (
+            volatility_spy == 0
+            or volatility_equity == 0
+            or np.isnan(volatility_spy)
+            or np.isnan(volatility_equity)
+        ):
+            return np.nan  # Or handle as appropriate, e.g., assign 0 or 100%
 
         # Calculate Risk Parity weights
         weight_spy = 1 / volatility_spy
@@ -2760,7 +2951,6 @@ class PortfolioEvaluator:
         # Return the weights as a dictionary
         return round(weight_equity, 2) * 100
 
-
     def _MDD_Recovery_Time(self, df_equity):
         # Ensure the DataFrame is sorted by date
         df_equity = df_equity.sort_values(by="date")
@@ -2770,7 +2960,9 @@ class PortfolioEvaluator:
 
         # Calculate the drawdown at each point
         # Avoid division by zero if peak is zero
-        df_equity["drawdown"] = (df_equity["value"] - df_equity["peak"]) / df_equity["peak"].replace(0, np.nan)
+        df_equity["drawdown"] = (df_equity["value"] - df_equity["peak"]) / df_equity[
+            "peak"
+        ].replace(0, np.nan)
         df_equity["drawdown"].fillna(0, inplace=True)
 
         # Find the date (index) of the maximum drawdown (minimum drawdown value)
@@ -2862,7 +3054,6 @@ class PortfolioEvaluator:
         omega_ratio = gains / losses
         return omega_ratio
 
-
     def _calculate_ulcer_index(self, df_equity):
         column = "value"  # Assuming 'Value' is always the column of interest
 
@@ -2887,9 +3078,9 @@ class PortfolioEvaluator:
         df_equity["returns"] = df_equity[column].pct_change()
 
         # Handle case with insufficient data
-        if len(df_equity["returns"]) < 10: # Need enough data for reliable percentiles
+        if len(df_equity["returns"]) < 10:  # Need enough data for reliable percentiles
             return np.nan
-        
+
         # Remove NaN values from the returns column
         returns = df_equity["returns"].dropna()
 
