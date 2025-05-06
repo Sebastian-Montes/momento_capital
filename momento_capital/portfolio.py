@@ -1477,8 +1477,12 @@ class PortfolioEvaluator:
 
             plt.show()
         else:
-            series_2_starting_value = series_2.iat[0, 0]
-            series_1_starting_value = series_1.iat[0, 0]
+            series_1 = series_1.squeeze()
+            series_2 = series_2.squeeze()
+
+            series_1_starting_value = series_1.iloc[0]  # scalar
+            series_2_starting_value = series_2.iloc[0]  # scalar
+
             series_1 = series_1 * (series_2_starting_value / series_1_starting_value)
 
             fig, ax = plt.subplots(figsize=(12, 6))
@@ -1817,7 +1821,7 @@ class PortfolioEvaluator:
 
         # Now calculate using the Series - results will be scalar
         benchmark_cumulative_return = (
-            (benchmark_series.iat[-1, 0] / benchmark_series.iat[0, 0]) - 1
+            (benchmark_series.iat[-1] / benchmark_series.iat[0]) - 1
         ) * 100
         self.benchmark_cumulative_return = benchmark_cumulative_return
 
