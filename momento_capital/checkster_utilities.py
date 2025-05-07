@@ -27,20 +27,18 @@ def fetch_s3_csv(s3_client, bucket, file_key):
 
 
 def filter_historical_holdings(
-    historical_holdings, sectors_holdings, since, nearest_to_months
+    interval_keyed_historical_holdings, sector_keyed_holdings, since, nearest_to_months
 ):
     if not any(isinstance(i, int) for i in nearest_to_months):
         raise ValueError("List elements of nearest_to_months must be integers")
     if any(i > 12 or i < 1 for i in nearest_to_months):
         raise ValueError("List elements of nearest_to_months must be between 1 and 12")
 
-    filtered_spy_holdings = {}
-    for interval, holds in historical_holdings.items():
-        start_str, end_str = interval.split("/")
-        end_dt = pd.Timestamp.today() if end_str == "--" else pd.to_datetime(end_str)
-        if end_dt >= pd.to_datetime(since):  # keep intervals that overlap ‘since’
-            filtered_spy_holdings[interval] = holds
-
+    filtered_spy_holdings = {
+        interval: active_holdings
+        for interval, active_holdings in interval_keyed_historical_holdings.items()
+        if pd.to_datetime(interval[:10]) >= pd.to_datetime(since)
+    }
     unique_rebalance_dates = pd.to_datetime(
         [interval[:10] for interval in filtered_spy_holdings.keys()]
     )
@@ -72,7 +70,7 @@ def filter_historical_holdings(
 
     filtered_historical_holdings = {
         interval: holdings
-        for interval, holdings in historical_holdings.items()
+        for interval, holdings in interval_keyed_historical_holdings.items()
         if interval[:10] in filtered_dates
     }
 
@@ -85,10 +83,10 @@ def filter_historical_holdings(
     filtered_sector_holdings = {
         sector: [
             holding
-            for holding in sectors_holdings[sector]
+            for holding in sector_keyed_holdings[sector]
             if holding in unique_filtered_holdings
         ]
-        for sector in sectors_holdings.keys()
+        for sector in sector_keyed_holdings.keys()
     }
 
     return filtered_historical_holdings, filtered_sector_holdings

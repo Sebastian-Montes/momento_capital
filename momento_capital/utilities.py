@@ -259,3 +259,22 @@ def clean_signal(signal):
     }
 
     return cleaned_signal
+
+
+def forward_fill_until_last_value(df):
+    """
+    Aplica forward-fill en un DataFrame, pero solo hasta el último valor no nulo en cada columna.
+    Los NaNs al final (sin valores posteriores) no son rellenados.
+    """
+    result = df.copy()
+    for col in result.columns:
+        # Crear máscara que detecta si hay valores válidos en adelante (incluyendo el actual)
+        mask = result[col][::-1].notna().cumsum()[::-1] > 0
+
+        # Aplicar ffill solo a los NaNs
+        result[col] = result[col].where(~result[col].isna(), result[col].ffill())
+
+        # Anular los valores rellenados más allá del último dato no-nulo
+        result[col] = result[col].where(mask)
+
+    return result
