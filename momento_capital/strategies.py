@@ -14,9 +14,9 @@ from .utilities import (
     apply_function_to_data,
     find_active_etfs,
 )
-from signals.utilities import extract_common_detailed_signal, clean_signal
+from .utilities import extract_common_detailed_signal, clean_signal
 import pandas as pd
-from godolib.fast_transformers import calculate_rsi
+from .transformers import calculate_rsi
 from .checkster_utilities import *
 
 from pandas.tseries.offsets import DateOffset

@@ -96,3 +96,26 @@ def calculate_lower_bb(array, window_size, bollinger_factor):
     lower_bollinger_band_array = sma_array - bollinger_factor * rolling_std_array
     return lower_bollinger_band_array
 
+
+def calculate_rsi(array, window_size):
+    if not isinstance(array, np.ndarray):
+        raise ValueError("Input object must be an array")
+    if array.ndim != 2:
+        raise ValueError("Array must be bidimensional")
+    if np.isnan(array).any():
+        raise ValueError("Array contains NaNs")
+    delta = np.diff(array, axis=0)
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = np.zeros_like(array)
+    avg_loss = np.zeros_like(array)
+    avg_gain[window_size] = np.mean(gain[:window_size], axis=0)
+    avg_loss[window_size] = np.mean(loss[:window_size], axis=0)
+    for i in range(window_size + 1, array.shape[0]):
+        avg_gain[i] = (avg_gain[i - 1] * (window_size - 1) + gain[i - 1]) / window_size
+        avg_loss[i] = (avg_loss[i - 1] * (window_size - 1) + loss[i - 1]) / window_size
+    rs = avg_gain / (avg_loss + 1e-10)
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi[window_size:]
+
+    return rsi

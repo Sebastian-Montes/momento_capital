@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def apply_function_by_groups(df, func):
     groups = split_df_by_nan_config(df)
     result = [func(group) for group in groups]
@@ -38,6 +39,7 @@ def func_by_groups(group, func, *args, **kwargs):
         index=group.index[-applied_func_array.shape[0] :],
         columns=group.columns,
     )
+
 
 def find_current_filtered_active_holdings(
     date,
@@ -86,9 +88,7 @@ def find_active_interval(str_date, interval_keyed_historical_holdings):
     return interval
 
 
-def process_data(
-    filtered_df, start_date, end_date, freq, max_window
-):
+def process_data(filtered_df, start_date, end_date, freq, max_window):
     filtered_df = filtered_df.loc[filtered_df.index <= end_date].copy()
 
     filtered_df_dates = [date.strftime("%Y-%m-%d") for date in filtered_df.index]
@@ -104,6 +104,7 @@ def process_data(
     ]
     filtered_df.drop(not_enough_columns, axis=1, inplace=True)
     return filtered_df, first_valid_date
+
 
 def get_next_closest_date(target_date, date_list):
     target_date = pd.to_datetime(target_date)
@@ -173,3 +174,88 @@ def find_active_interval(str_date, interval_keyed_historical_holdings):
         ):
             break
     return interval
+
+
+def check_for_signal_keys(signals):
+    reference_keys = set(signals[0].keys())
+    condition = all(set(d.keys()) == reference_keys for d in signals)
+    if not condition:
+        raise ValueError("Keys must be the same over all dictionaries")
+
+
+def extract_common_detailed_signal(signals):
+    check_for_signal_keys(signals)
+    common_signals = {}
+    for date in signals[0].keys():
+        date_unique_holdings = list(
+            {holding for signal in signals for holding in signal[date].keys()}
+        )
+        common_signals[date] = [
+            holding
+            for holding in date_unique_holdings
+            if all(holding in signal[date] for signal in signals)
+        ]
+    joined_signals = {
+        date: {
+            holding: {
+                k: v for signal in signals for k, v in signal[date][holding].items()
+            }
+            for holding in date_signal
+        }
+        for date, date_signal in common_signals.items()
+    }
+    return joined_signals
+
+
+def clean_signal(signal):
+    """
+    Filters a signal dictionary to include only entries from the first non-empty list of assets onward.
+
+    Parameters:
+    ----------
+    signal : dict
+        A dictionary where:
+        - Keys are dates represented as strings (e.g., 'YYYY-MM-DD').
+        - Values are lists of assets associated with the corresponding dates.
+
+    Returns:
+    -------
+    dict
+        A filtered dictionary that includes only the entries where the date is
+        greater than or equal to the first date with a non-empty list of assets.
+
+    Example:
+    --------
+    >>> signal = {
+    ...     "2025-01-01": [],
+    ...     "2025-01-02": [],
+    ...     "2025-01-03": ["AAPL", "TSLA"],
+    ...     "2025-01-04": ["GOOGL"],
+    ... }
+    >>> clean_signal(signal)
+    {'2025-01-03': ['AAPL', 'TSLA'], '2025-01-04': ['GOOGL']}
+
+    Notes:
+    ------
+    - If all values in the dictionary are empty lists, the function will return an empty dictionary.
+    - Dates are converted to pandas datetime objects for robust comparison.
+    """
+    if all(len(s) == 0 for s in signal.values()):
+        print("Empty signal")
+        return signal
+    # if len([v for vs in signal.values() for v in vs]) == 0:
+    #     raise ValueError("Empty signal")
+    # Identify the first date with a non-empty list of assets
+    for date, assets in signal.items():
+        if len(assets) != 0:
+            starting_date = date  # Save the starting date
+            break
+
+    # Filter the dictionary to include only entries from the starting date onward
+    cleaned_signal = {
+        date: assets
+        for date, assets in signal.items()
+        if pd.to_datetime(date) >= pd.to_datetime(starting_date)
+    }
+
+    return cleaned_signal
