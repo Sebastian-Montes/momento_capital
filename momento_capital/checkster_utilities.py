@@ -34,11 +34,13 @@ def filter_historical_holdings(
     if any(i > 12 or i < 1 for i in nearest_to_months):
         raise ValueError("List elements of nearest_to_months must be between 1 and 12")
 
-    filtered_spy_holdings = {
-        interval: active_holdings
-        for interval, active_holdings in historical_holdings.items()
-        if pd.to_datetime(interval[:10]) >= pd.to_datetime(since)
-    }
+    filtered_spy_holdings = {}
+    for interval, holds in historical_holdings.items():
+        start_str, end_str = interval.split("/")
+        end_dt = pd.Timestamp.today() if end_str == "--" else pd.to_datetime(end_str)
+        if end_dt >= pd.to_datetime(since):  # keep intervals that overlap ‘since’
+            filtered_spy_holdings[interval] = holds
+
     unique_rebalance_dates = pd.to_datetime(
         [interval[:10] for interval in filtered_spy_holdings.keys()]
     )

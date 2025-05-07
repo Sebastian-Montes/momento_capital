@@ -732,7 +732,6 @@ def checkster(
     roc_stddev_period,
 ):
 
-    # ... your nested helper functions ...
     def calculate_roc(df, period):
         return df["adjusted_close"].pct_change(periods=period) * 100
 
@@ -747,19 +746,35 @@ def checkster(
         df["ROC_STDDEV_Ratio"] = df["ROC"] / df["STDDEV"]
         return df
 
-    def rank_top_10_by_etf(df, etf_column, metric):
+    def rank_top_10_by_etf(df, etf_column, metric, k=30):
+        """
+        Return the top‑`k` rows (by `metric`) for every ETF on every date.
+        The wider depth gives your back‑fill logic more candidates to reach
+        stocks_per_etf * n_top after filtering inactive tickers.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Long‑form price/metric data.
+        etf_column : str
+            Column holding ETF identifiers (e.g. 'ETF 1').
+        metric : str
+            Column to rank on (e.g. 'ROC_STDDEV_Ratio').
+        k : int, default 30
+            How many rows per ETF‑date to keep.
+        """
         ranked_data = []
+
         for etf in df[etf_column].unique():
             etf_data = df[df[etf_column] == etf]
-            unique_dates = sorted(etf_data["date"].unique())
+            for date, daily_data in etf_data.groupby("date"):
+                daily_top = daily_data.nlargest(k, metric)
+                if not daily_top.empty:
+                    daily_top = daily_top[["ticker", metric, "date"]]
+                    daily_top["Rank"] = range(1, len(daily_top) + 1)
+                    daily_top["ETF"] = etf
+                    ranked_data.append(daily_top)
 
-            for date in unique_dates:
-                daily_data = etf_data[etf_data["date"] == date].nlargest(10, metric)
-                if not daily_data.empty:
-                    daily_data = daily_data[["ticker", metric, "date"]]
-                    daily_data["Rank"] = range(1, len(daily_data) + 1)
-                    daily_data["ETF"] = etf
-                    ranked_data.append(daily_data)
         return pd.concat(ranked_data, axis=0)
 
     def pivot_ranked_data_by_etf(df, etf):
@@ -803,6 +818,24 @@ def checkster(
 
     active_holdings_cache = dict(zip(dates, active_holdings_list))
 
+    # === NEW forward‑filled cache =============================================
+    active_holdings_cache = {}
+    last_valid = None
+
+    for date in dates:  # dates is already sorted chronologically
+        holdings = extract_active_holdings(
+            date, filtered_historical_holdings, filtered_sector_holdings
+        )
+
+        # if extract_active_holdings() returns [] or {}, reuse last_valid
+        if not holdings:  # [] or empty dict / None
+            holdings = last_valid
+        else:
+            last_valid = holdings  # update anchor when we get real data
+
+        active_holdings_cache[date] = holdings or {}  # guarantee a dict
+    # ===========================================================================
+
     rebalance_dates = [dates[i] for i in range(len(dates)) if i % rebalance_freq == 0]
     combined_rebalance_dates = sorted(
         set(rebalance_dates).union(md.strftime("%Y-%m-%d") for md in marked_dates)
@@ -818,9 +851,9 @@ def checkster(
             current_date = pd.to_datetime(date)
 
             if date not in active_holdings_cache:
-                # print(
-                #     f"Warning: {date} not found in active_holdings_cache. Skipping..."
-                # )
+                print(
+                    f"Warning: {date} not found in active_holdings_cache. Skipping..."
+                )
                 continue
 
             if current_date in marked_dates:
@@ -829,21 +862,21 @@ def checkster(
                 past_marked_dates = marked_dates[marked_dates <= current_date]
 
             if past_marked_dates.empty:
-                # print(f"❌ ERROR: No valid past rebalance date for {date}. Skipping...")
+                print(f"❌ ERROR: No valid past rebalance date for {date}. Skipping...")
                 continue
 
             marked_date = past_marked_dates.max()
 
             if marked_date not in df.index:
-                # print(
-                #     f"❌ ERROR: Marked date {marked_date} missing in DataFrame. Skipping..."
-                # )
+                print(
+                    f"❌ ERROR: Marked date {marked_date} missing in DataFrame. Skipping..."
+                )
                 continue
 
             if df.loc[marked_date, symbols].isnull().any():
-                # print(
-                #     f"⚠️ Warning: NaN in ETF prices on {marked_date}. Skipping return."
-                # )
+                print(
+                    f"⚠️ Warning: NaN in ETF prices on {marked_date}. Skipping return."
+                )
                 continue
 
             if date not in local_etfs_return_cache:
