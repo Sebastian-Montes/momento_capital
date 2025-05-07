@@ -119,3 +119,40 @@ def calculate_rsi(array, window_size):
     rsi = rsi[window_size:]
 
     return rsi
+
+
+def calculate_rolling_corr(A, B, window_size):
+    if A.shape[0] != B.shape[0]:
+        raise ValueError("size at axis 0 must be the same for input A and B")
+    unfolded_A = np.lib.stride_tricks.sliding_window_view(
+        A, window_shape=window_size, axis=0
+    )
+    unfolded_B = np.lib.stride_tricks.sliding_window_view(
+        B, window_shape=window_size, axis=0
+    )
+    corr_tensor = np.zeros((B.shape[1], A.shape[1], unfolded_A.shape[0]))
+    for window in range(unfolded_A.shape[0]):
+        corr_tensor[..., window] = calculate_pearson_correlation(
+            A=unfolded_A[window].T, B=unfolded_B[window].T
+        )
+    return corr_tensor
+
+
+def calculate_pearson_correlation(A, B):
+    A_mean = np.mean(A, axis=0)
+    B_mean = np.mean(B, axis=0)
+    A_mean = np.repeat(np.expand_dims(A_mean, axis=1), repeats=A.shape[0], axis=1).T
+    B_mean = np.repeat(np.expand_dims(B_mean, axis=1), repeats=B.shape[0], axis=1).T
+    displaced_A = A - A_mean
+    displaced_B = B - B_mean
+    displaced_A = np.repeat(
+        np.expand_dims(displaced_A, axis=1), repeats=B.shape[1], axis=1
+    )
+    displaced_B = np.repeat(
+        np.expand_dims(displaced_B, axis=2), repeats=A.shape[1], axis=2
+    )
+    numerator = np.sum(displaced_A * displaced_B, axis=0)
+    denominator = np.sqrt(np.sum(displaced_A**2, axis=0)) * np.sqrt(
+        np.sum(displaced_B**2, axis=0)
+    )
+    return numerator / denominator
