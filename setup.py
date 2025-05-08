@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="momento_capital",  # Reemplaza con el nombre de tu librería
-    version="0.2.9",
+    version="0.3.0",
     author="Sergio Montes",
     author_email="ss.montes.jimenez@gmail.com",
     description="MomentoCapital Library",

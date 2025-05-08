@@ -1821,7 +1821,7 @@ class PortfolioEvaluator:
 
         # Now calculate using the Series - results will be scalar
         benchmark_cumulative_return = (
-            (benchmark_series.iat[-1] / benchmark_series.iat[0]) - 1
+            (benchmark_series.iat[-1, 0] / benchmark_series.iat[0, 0]) - 1
         ) * 100
         self.benchmark_cumulative_return = benchmark_cumulative_return
 
