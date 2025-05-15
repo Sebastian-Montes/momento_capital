@@ -1771,45 +1771,54 @@ class PortfolioEvaluator:
         days = (end_date - start_date).days
         years = days / 360
         cagr = ((final_value / initial_value) ** (1 / years)) - 1
-        cagr_percentage = cagr * 100
+        cagr_percentage = round(cagr * 100, 2)
         current_year = end_date.year
-        max_drawdown = self._maximum_drawdown(df_equity=df)
-        value_at_risk_var = self._Value_at_Risk_VaR(df_equity=df)
-        sharpe_ratio = self._Sharpe_ratio(df_equity=df)
-        sortino_ratio = self._Sortino_ratio(df_equity=df)
-        skew = self._Skew(df_equity=df)
-        kurtosis = self._Kurtosis(df_equity=df)
-        volatility_ann_percent = self.Volatility_Ann_Percent(df_equity=df)
-        conditional_var_cvar = self._Conditional_Value_at_Risk_VaR(df_equity=df)
-        cumulative_return_percent = (
-            (final_value - initial_value) / initial_value
-        ) * 100
+        max_drawdown = round(self._maximum_drawdown(df_equity=df), 2)
+        correlation_with_benchmark = round(self.correlation_with_benchmark(), 2)
+        value_at_risk_var = round(self._Value_at_Risk_VaR(df_equity=df), 2)
+        sharpe_ratio = round(self._Sharpe_ratio(df_equity=df), 2)
+        sortino_ratio = round(self._Sortino_ratio(df_equity=df), 2)
+        skew = round(self._Skew(df_equity=df), 2)
+        kurtosis = round(self._Kurtosis(df_equity=df), 2)
+        volatility_ann_percent = round(self.Volatility_Ann_Percent(df_equity=df), 2)
+        conditional_var_cvar = round(
+            self._Conditional_Value_at_Risk_VaR(df_equity=df), 2
+        )
+        cumulative_return_percent = round(
+            ((final_value - initial_value) / initial_value) * 100, 2
+        )
         self.cumulative_return_percent = (
             cumulative_return_percent  # Use the snake_case variable here
         )
-        calmar = cagr_percentage / abs(max_drawdown) if max_drawdown != 0 else None
-        treynor_index = self._calculate_treynor_index(df_equity=df)
-        beta = self._calculate_beta(df_equity=df)
+        calmar = (
+            round(cagr_percentage / abs(max_drawdown), 2) if max_drawdown != 0 else None
+        )
+        treynor_index = round(self._calculate_treynor_index(df_equity=df), 2)
+        beta = round(self._calculate_beta(df_equity=df), 2)
         recovery_factor = (
-            abs(cumulative_return_percent) / abs(max_drawdown)
+            round(abs(cumulative_return_percent) / abs(max_drawdown), 2)
             if max_drawdown != 0
             else None
-        )  # Use snake_case here
-        risk_parity = self._calculate_risk_parity(df_equity=df)
-        MDD_mean = self._calculate_MDD_mean(df_equity=df)
+        )
+        risk_parity = round(self._calculate_risk_parity(df_equity=df), 2)
+        MDD_mean = round(self._calculate_MDD_mean(df_equity=df), 2)
         MDD_Recovery_time = self._MDD_Recovery_Time(df_equity=df)
-        omega = self._calculate_omega_ratio(df_equity=df)
-        ulcer_index = self._calculate_ulcer_index(df_equity=df)
-        tail_ratio = self._calculate_tail_ratio(df_equity=df)
-        gain_pain = self._calculate_gain_to_pain_ratio(df_equity=df)
-        ytd_returns = returns.loc[f"{current_year}-01-01":].sum() * 100  # Year to Date
-        one_year_returns = (
-            returns.loc[f"{current_year - 1}" :f"{current_year - 1}-12-31"].sum() * 100
+        omega = round(self._calculate_omega_ratio(df_equity=df), 2)
+        ulcer_index = round(self._calculate_ulcer_index(df_equity=df), 2)
+        tail_ratio = round(self._calculate_tail_ratio(df_equity=df), 2)
+        gain_pain = round(self._calculate_gain_to_pain_ratio(df_equity=df), 2)
+        ytd_returns = round(
+            returns.loc[f"{current_year}-01-01":].sum() * 100, 2
+        )  # Year to Date
+        one_year_returns = round(
+            returns.loc[f"{current_year - 1}" :f"{current_year - 1}-12-31"].sum() * 100,
+            2,
         )  # Last Year
-        two_year_returns = (
-            returns.loc[f"{current_year - 2}" :f"{current_year - 1}-12-31"].sum() * 100
+        two_year_returns = round(
+            returns.loc[f"{current_year - 2}" :f"{current_year - 1}-12-31"].sum() * 100,
+            2,
         )  # Two Years
-        hit_rate = (returns > 0).sum() / len(returns) * 100
+        hit_rate = round((returns > 0).sum() / len(returns) * 100, 2)
         equity_start_date = self.equity_data.index[0].strftime("%Y-%m-%d")
         equity_end_date = self.equity_data.index[-1].strftime("%Y-%m-%d")
 
@@ -1820,19 +1829,20 @@ class PortfolioEvaluator:
         ]
 
         # Now calculate using the Series - results will be scalar
-        benchmark_cumulative_return = (
-            (benchmark_series.iat[-1] / benchmark_series.iat[0]) - 1
-        ) * 100
+        benchmark_cumulative_return = round(
+            ((benchmark_series.iat[-1] / benchmark_series.iat[0]) - 1) * 100, 2
+        )
         self.benchmark_cumulative_return = benchmark_cumulative_return
 
         metrics = {}
         metrics["portfolio_id"] = self.portfolio_id
         metrics["start_date"] = start_date
         metrics["end_date"] = end_date
-        metrics["average_daily_value"] = df["value"].mean()
-        metrics["median_daily_value"] = df["value"].median()
-        metrics["max_daily_value"] = df["value"].max()
-        metrics["min_daily_value"] = df["value"].min()
+        metrics["average_daily_value"] = round(df["value"].mean(), 2)
+        metrics["median_daily_value"] = round(df["value"].median(), 2)
+        metrics["max_daily_value"] = round(df["value"].max(), 2)
+        metrics["min_daily_value"] = round(df["value"].min(), 2)
+        metrics["correlation_with_benchmark"] = correlation_with_benchmark
         metrics["cumulative_return_percent"] = cumulative_return_percent
         metrics["cagr_percent"] = cagr_percentage
         metrics["year_to_date_percent"] = ytd_returns
@@ -1864,6 +1874,9 @@ class PortfolioEvaluator:
         metrics["gain_to_pain_ratio"] = gain_pain
         return pd.DataFrame(metrics.items(), columns=["metric", "value"])
 
+    def correlation_with_benchmark(self):
+        return self.equity_data.corr(self.benchmark_series)
+
     def _calculate_alpha(self, equity_df):
 
         beta = self._calculate_beta(df_equity=equity_df)
@@ -1872,9 +1885,13 @@ class PortfolioEvaluator:
         if pd.isna(beta) or pd.isna(self.benchmark_cumulative_return):
             return np.nan
         # Use snake_case attributes
-        alpha = self.cumulative_return_percent - (
-            self.risk_free_rate
-            + beta * (self.benchmark_cumulative_return - self.risk_free_rate)
+        alpha = round(
+            self.cumulative_return_percent
+            - (
+                self.risk_free_rate
+                + beta * (self.benchmark_cumulative_return - self.risk_free_rate)
+            ),
+            2,
         )
         return alpha
 
@@ -2214,7 +2231,7 @@ class PortfolioEvaluator:
         drawdowns.fillna(0, inplace=True)  # Fill NaNs resulting from division by zero
 
         # Maximum drawdown is the minimum of the drawdown series (most negative)
-        max_dd = -drawdowns.min()
+        max_dd = (-drawdowns.min()) * 100
 
         return max_dd
 
@@ -2343,7 +2360,7 @@ class PortfolioEvaluator:
         df_equity["drawdown"] = (df_equity["value"] - df_equity["peak"]) / df_equity[
             "peak"
         ].replace(0, np.nan)
-        df_equity["drawdown"].fillna(0, inplace=True)
+        df_equity["drawdown"] = df_equity["drawdown"].fillna(0)
 
         # Find the date (index) of the maximum drawdown (minimum drawdown value)
         max_drawdown_date = df_equity["drawdown"].idxmin()

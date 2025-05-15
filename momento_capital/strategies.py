@@ -7,6 +7,7 @@ from .portfolio import (
 from .transformers import (
     calculate_relative_volatility_on_prices,
     calculate_simple_moving_average,
+    calculate_rsi,
 )
 from .utilities import (
     find_current_filtered_active_holdings,
@@ -17,7 +18,6 @@ from .utilities import (
     extract_common_detailed_signal,
 )
 import pandas as pd
-from godolib.fast_transformers import calculate_rsi
 from .checkster_utilities import *
 
 from pandas.tseries.offsets import DateOffset
