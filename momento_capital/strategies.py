@@ -1035,7 +1035,6 @@ def checkster(
     simulation_df["Date"] = pd.to_datetime(simulation_df["Date"], errors="coerce")
     simulation_df.set_index("Date", inplace=True)
     simulation_df.sort_index(inplace=True)
-    simulation_df = simulation_df.loc[simulation_df.index <= end_date]
 
     # Gather all tickers that are signaled (i.e. appear in final_dictionary)
     all_portfolio_tickers = set()
