@@ -747,7 +747,7 @@ def checkster(
         df["ROC_STDDEV_Ratio"] = df["ROC"] / df["STDDEV"]
         return df
 
-    def rank_top_10_by_etf(df, etf_column, metric, k=30):
+    def rank_top_10_by_etf(df, etf_column, metric, k=50):
         """
         Return the top‑`k` rows (by `metric`) for every ETF on every date.
         The wider depth gives your back‑fill logic more candidates to reach
@@ -804,10 +804,20 @@ def checkster(
     # Main logic of checkster
     marked_dates = get_fixed_marked_dates(df, marked_dates_per_year)
     df.index = pd.to_datetime(df.index)
+    # dates = [
+    #     d
+    #     for d in df.index.strftime("%Y-%m-%d").tolist()
+    #     if d >= start_date and (end_date is None or d <= end_date)
+    # ]
+    # Support warm-up logic to allow building active holdings from earlier data ----------------
+    true_start_date = start_date
+    warmup_start_date = "2022-01-01"
+
+    all_dates = df.index.strftime("%Y-%m-%d").tolist()
     dates = [
         d
-        for d in df.index.strftime("%Y-%m-%d").tolist()
-        if d >= start_date and (end_date is None or d <= end_date)
+        for d in all_dates
+        if d >= warmup_start_date and (end_date is None or d <= end_date)
     ]
 
     active_holdings_list = [
@@ -818,7 +828,7 @@ def checkster(
     ]
 
     active_holdings_cache = dict(zip(dates, active_holdings_list))
-
+    # ------------------------------------------------------------------------------------
     # === NEW forward‑filled cache =============================================
     active_holdings_cache = {}
     last_valid = None
@@ -953,13 +963,20 @@ def checkster(
     pivoted_data = {etf: pivot_ranked_data_by_etf(ranked_data, etf) for etf in symbols}
 
     # ------------------ build fixed‑length daily lists -------------------------
+    # target_per_day = stocks_per_etf * n_top
+    # top_stocks_data = {}
+
+    # for date in top_ranked_sectors.columns:
     target_per_day = stocks_per_etf * n_top
     top_stocks_data = {}
 
     for date in top_ranked_sectors.columns:
+        if date < true_start_date:
+            continue  # skip pre-simulation signals
+
         date_str = str(date)
         daily_picks = []
-
+        # ---------------------------------------
         actives_today = active_holdings_cache.get(date_str, {}) or {}
 
         # Pass 1: normal top‑rank loop, filtered by active set
