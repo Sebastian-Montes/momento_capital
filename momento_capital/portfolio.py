@@ -14,7 +14,298 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 
-class PortfolioSimulator:
+class EventPortfolioSimulator:
+    def __init__(self, initial_cash, portfolio_id, verbose=0):
+        self.initial_cash = initial_cash
+        self.liquid_money = initial_cash
+        self.portfolio_value = initial_cash
+        self.history = {}
+        self.current_holdings = {}
+        self.equity = []
+        self.trades = []
+        self.portfolio_id = portfolio_id
+        self.verbose = verbose
+
+    def simulate(self, assets_df, signal):
+        self.assets_df = assets_df
+        self.signal = signal
+        df_dates = assets_df.index.astype(str).tolist()
+        signal_dates = list(signal.keys())
+        if set(df_dates) != set(signal_dates):
+            raise ValueError("assets df and signal dates do not match")
+        self.dates = df_dates.copy()
+        self.today = self.dates[0]
+        if len(signal[self.today]["sell"]) > 0:
+            raise ValueError("Signal first date include selling instructions")
+        self._raise_for_instruction(instruction=signal[self.today])
+        buying_assets = signal[self.today]["buy"]
+        for asset in buying_assets:
+            self._buy(
+                asset=asset,
+                quantity=self.portfolio_value * signal[self.today]["buy"][asset],
+            )
+
+        self._check_for_delisted()
+        self.equity.append(
+            {
+                "date": self.today,
+                "portfolio_value": self.portfolio_value,
+                "liquid_money": self.liquid_money,
+            }
+        )
+        self.history[self.today] = self.current_holdings
+        for date in self.dates[1:]:
+            self.today = date
+            last_date = self.dates[self.dates.index(self.today) - 1]
+            last_date_records = self.history[last_date]
+            holdings_returns = {
+                holding: (
+                    self.assets_df.loc[self.today, holding]
+                    / self.assets_df.loc[last_date, holding]
+                )
+                - 1
+                for holding in last_date_records
+            }
+            self.current_holdings = {}
+            for holding, increase in holdings_returns.items():
+                self.portfolio_value += last_date_records[holding]["amount"] * increase
+                self.current_holdings[holding] = {
+                    "amount": last_date_records[holding]["amount"] * (1 + increase),
+                    "allocation": last_date_records[holding]["allocation"]
+                    * (1 + increase),
+                }
+            self._raise_for_instruction(instruction=signal[self.today])
+            if len(signal[self.today]["sell"]) > 0:
+                for holding in signal[self.today]["sell"]:
+                    allocation_to_sell = signal[self.today]["sell"][holding]
+                    if allocation_to_sell == 1:
+                        self._sell(asset=holding, quantity="all")
+                    else:
+                        self._sell(
+                            asset=holding,
+                            quantity=allocation_to_sell
+                            * self.current_holdings[holding]["amount"],
+                        )
+            if len(signal[self.today]["buy"]) > 0:
+                for holding in signal[self.today]["buy"]:
+                    allocation_to_buy = signal[self.today]["buy"][holding]
+                    self._buy(
+                        asset=holding, quantity=self.portfolio_value * allocation_to_buy
+                    )
+            if self.today != self.dates[-1]:
+                self._check_for_delisted()
+            self.history[self.today] = self.current_holdings
+            self.equity.append(
+                {
+                    "date": self.today,
+                    "portfolio_value": self.portfolio_value,
+                    "liquid_money": self.liquid_money,
+                }
+            )
+            self.holdings = self._holdings_from_history()
+            self._add_id()
+
+    def _add_id(self):
+        self.holdings = [
+            {"portfolio_id": self.portfolio_id, **row} for row in self.holdings
+        ]
+        self.equity = [
+            {"portfolio_id": self.portfolio_id, **row} for row in self.equity
+        ]
+        self.trades = [
+            {"portfolio_id": self.portfolio_id, **row} for row in self.trades
+        ]
+
+    def _sell(self, asset, quantity):
+        if asset not in self.current_holdings:
+            raise ValueError(
+                f"You can't sell {asset} because it's not in the portfolio."
+            )
+        if quantity == "all":
+            if self.verbose == 2:
+                print(f"Selling ${self.current_holdings[asset]['amount']} of {asset}")
+            self.trades.append(
+                {
+                    "date": self.today,
+                    "asset": asset,
+                    "action": "sell",
+                    "amount": self.current_holdings[asset]["amount"],
+                    "price": self.assets_df.loc[self.today, asset],
+                    "shares": self.current_holdings[asset]["amount"]
+                    / self.assets_df.loc[self.today, asset],
+                    "price": self.assets_df.loc[self.today, asset],
+                    "resulting_amount": 0,
+                }
+            )
+            self.liquid_money = (
+                self.liquid_money + self.current_holdings[asset]["amount"]
+            )
+            del self.current_holdings[asset]
+
+        elif self.current_holdings[asset]["amount"] < quantity:
+            raise ValueError(
+                f"You can't sell ${quantity} of {asset}, you only have ${self.current_holdings[asset]['amount']}"
+            )
+
+        else:
+            if self.verbose == 2:
+                print(f"Selling ${quantity} of {asset}")
+
+            self.trades.append(
+                {
+                    "date": self.today,
+                    "asset": asset,
+                    "action": "sell",
+                    "amount": quantity,
+                    "price": self.assets_df.loc[self.today, asset],
+                    "shares": self.current_holdings[asset]["amount"]
+                    / self.assets_df.loc[self.today, asset],
+                    "price": self.assets_df.loc[self.today, asset],
+                    "resulting_amount": (
+                        self.current_holdings[asset]["amount"] - quantity
+                    ),
+                }
+            )
+
+            self.liquid_money = self.liquid_money + quantity
+            self.current_holdings[asset]["amount"] -= quantity
+            self.current_holdings[asset]["allocation"] = (
+                self.current_holdings[asset]["amount"] / self.portfolio_value
+            )
+
+    def _buy(self, asset, quantity):
+        if quantity > self.liquid_money:
+            if quantity - self.liquid_money < 0.0001:
+                quantity = self.liquid_money
+            else:
+                raise ValueError(
+                    f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money:.2f}"
+                )
+        self.trades.append(
+            {
+                "date": self.today,
+                "asset": asset,
+                "action": "buy",
+                "amount": quantity,
+                "price": self.assets_df.loc[self.today, asset],
+                "shares": quantity / self.assets_df.loc[self.today, asset],
+                "price": self.assets_df.loc[self.today, asset],
+                "resulting_amount": (
+                    quantity
+                    if asset not in self.current_holdings
+                    else self.current_holdings[asset]["amount"] + quantity
+                ),
+            }
+        )
+        self.liquid_money = self.liquid_money - quantity
+        if asset in self.current_holdings:
+            self.current_holdings[asset]["amount"] += quantity
+            self.current_holdings[asset]["allocation"] = (
+                self.current_holdings[asset]["amount"] / self.portfolio_value
+            )
+        else:
+            self.current_holdings[asset] = {
+                "allocation": quantity / self.portfolio_value,
+                "amount": quantity,
+            }
+
+    def _raise_for_instruction(self, instruction):
+        expected_keys = {"sell", "buy"}
+        if set(list(instruction.keys())) != expected_keys:
+            raise ValueError("Instruction keys do not match expected ones")
+        if (
+            self.liquid_money == 0
+            and len(instruction["sell"]) == 0
+            and len(instruction["buy"]) > 0
+        ):
+            raise ValueError(
+                "Invalid instruction: attempted to buy without available funds and with no assets to sell."
+            )
+        if len(instruction["sell"]) > 0:
+            if any(
+                asset not in self.current_holdings
+                for asset in instruction["sell"].keys()
+            ):
+                raise ValueError(
+                    "Invalid sell instruction: attempting to sell assets not currently held in the portfolio."
+                )
+            if any(allocation > 1 for allocation in instruction["sell"].values()):
+                raise ValueError(
+                    "Invalid sell instruction: one or more asset allocations exceed 1.0 (100%)."
+                )
+            if any(allocation < 0 for allocation in instruction["sell"].values()):
+                raise ValueError(
+                    "Invalid sell instruction: asset allocations cannot be negative."
+                )
+            if len(instruction["sell"].keys()) != len(
+                list(set(instruction["sell"].keys()))
+            ):
+                raise ValueError(
+                    "Invalid sell instruction: duplicate assets detected in the list of assets to sell."
+                )
+        if len(instruction["buy"]) > 0:
+            if len(instruction["buy"]) != len(set(instruction["buy"].keys())):
+                raise ValueError(
+                    "Invalid buy instruction: duplicate assets detected in the list of assets to buy."
+                )
+            if sum(allocation for allocation in instruction["buy"].values()) > 1:
+                raise ValueError(
+                    "Invalid buy instruction: total allocation exceeds 100% of available funds."
+                )
+            for asset in instruction["buy"]:
+                if asset not in self.assets_df.columns.tolist():
+                    raise ValueError(
+                        f"Mismatch on instruction: {asset} asset not in assets df"
+                    )
+
+    def save_to_excel(self, file_path):
+        equity = pd.DataFrame(self.equity)
+        trades = pd.DataFrame(self.trades)
+        holdings = pd.DataFrame(self.holdings)
+
+        dataframes = [equity, trades, holdings]
+        sheet_names = ["Equity", "Trades", "Holdings"]
+        save_dataframes_to_excel(
+            dataframes=dataframes,
+            sheet_names=sheet_names,
+            file_name=f"{file_path}",
+        )
+
+    def plot_equity(self):
+        equity_df = pd.DataFrame(self.equity)
+        equity_df["date"] = pd.to_datetime(equity_df["date"])
+        equity_df.set_index("date", inplace=True)
+        plt.figure(figsize=(18, 8))
+        plt.plot(equity_df["portfolio_value"])
+
+    def _check_for_delisted(self):
+        tomorrow_date = self.dates[self.dates.index(self.today) + 1]
+        tomorrow_active_assets = (
+            self.assets_df.loc[tomorrow_date]
+            .notna()
+            .loc[self.assets_df.loc[tomorrow_date].notna()]
+            .index.tolist()
+        )
+        for holding in self.current_holdings.keys():
+            if holding not in tomorrow_active_assets:
+                self._sell(holding=holding, quantity="all")
+
+    def _holdings_from_history(self):
+        holdings = []
+        for date, date_holdings in self.history.items():
+            for holding, holding_data in date_holdings.items():
+                holdings.append(
+                    {
+                        "date": date,
+                        "holding": holding,
+                        "amount": holding_data["amount"],
+                        "allocation": holding_data["allocation"],
+                    }
+                )
+        return holdings
+
+
+class FreqPortfolioSimulator:
     """
     A simulator for managing and evaluating a financial portfolio.
 
