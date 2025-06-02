@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: momento_capital
+Version: 0.3.5
+Summary: MomentoCapital Library
+Author: Sergio Montes
+Author-email: ss.montes.jimenez@gmail.com
+Requires-Python: >=3.9
+Requires-Dist: matplotlib
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: xlsxwriter
+Dynamic: author
+Dynamic: author-email
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
