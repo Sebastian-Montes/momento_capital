@@ -88,7 +88,7 @@ def find_active_interval(str_date, interval_keyed_historical_holdings):
     return interval
 
 
-def process_data(filtered_df, start_date, end_date, freq, max_window):
+def preprocess_data(filtered_df, start_date, end_date, max_window):
     filtered_df = filtered_df.loc[filtered_df.index <= end_date].copy()
 
     filtered_df_dates = [date.strftime("%Y-%m-%d") for date in filtered_df.index]
@@ -278,3 +278,184 @@ def forward_fill_until_last_value(df):
         result[col] = result[col].where(mask)
 
     return result
+
+
+def process_data(df, start_date, max_window):
+    processed_df = df.copy()
+    indices = df.index.astype(str).tolist()
+    if indices.index(start_date) < max_window + 1:
+        raise ValueError(
+            f"not enough past dates for given start date and max window. \ndates before starting date: {indices.index(start_date)} max window: {max_window}"
+        )
+    processed_df = processed_df.loc[
+        processed_df.index >= indices[indices.index(start_date) - max_window + 1]
+    ]
+    processed_df.dropna(how="all", axis=1, inplace=True)
+    not_enough_columns = [
+        col
+        for col in processed_df.columns.tolist()
+        if processed_df[col].notna().sum() <= max_window
+    ]
+    processed_df.drop(columns=not_enough_columns, inplace=True)
+    return processed_df
+
+
+def remove_almost_full_nan_rows(df, significance_percectage=0.95):
+    nans_per_row = {
+        idx: len(df.loc[idx].isna().loc[df.loc[idx].isna()])
+        for idx in df.index.tolist()
+    }
+    rows_to_remove = [
+        idx
+        for idx, nan_count in nans_per_row.items()
+        if nan_count >= df.shape[1] * significance_percectage
+    ]
+    filtered_df = df.copy()
+    filtered_df.drop(rows_to_remove, inplace=True)
+    return filtered_df
+
+
+def get_next_closest_date(target_date, date_list):
+    target_date = pd.to_datetime(target_date)
+    date_series = pd.to_datetime(pd.Series(date_list))
+    next_dates = date_series[date_series >= target_date]
+
+    if next_dates.empty:
+        return None
+    return next_dates.min().strftime("%Y-%m-%d")
+
+
+def filter_historical_holdings(
+    historical_holdings, sectors_holdings, since, nearest_to_months
+):
+    if not any(isinstance(i, int) for i in nearest_to_months):
+        raise ValueError("List elements of nearest_to_months must be integers")
+    if any(i > 12 or i < 1 for i in nearest_to_months):
+        raise ValueError("List elements of nearest_to_months must be between 1 and 12")
+
+    filtered_spy_holdings = {}
+    for interval, holds in historical_holdings.items():
+        start_str, end_str = interval.split("/")
+        end_dt = pd.Timestamp.today() if end_str == "--" else pd.to_datetime(end_str)
+        if end_dt >= pd.to_datetime(since):  # keep intervals that overlap ‘since’
+            filtered_spy_holdings[interval] = holds
+
+    unique_rebalance_dates = pd.to_datetime(
+        [interval[:10] for interval in filtered_spy_holdings.keys()]
+    )
+    last_date = max(unique_rebalance_dates)
+    active_years = {pd.to_datetime(date).year for date in unique_rebalance_dates}
+    target_dates = [
+        f"{year}-{month_idx:02d}-01"
+        for month_idx in nearest_to_months
+        for year in active_years
+    ]
+
+    target_dates = [
+        date.strftime("%Y-%m-%d")
+        for date in pd.to_datetime(target_dates).sort_values()
+        if date <= last_date
+    ]
+
+    filtered_dates = [
+        min(
+            [
+                date
+                for date in unique_rebalance_dates
+                if date >= pd.to_datetime(target_date)
+            ]
+        )
+        for target_date in target_dates
+    ]
+    filtered_dates = [date.strftime("%Y-%m-%d") for date in filtered_dates]
+
+    filtered_historical_holdings = {
+        interval: holdings
+        for interval, holdings in historical_holdings.items()
+        if interval[:10] in filtered_dates
+    }
+
+    unique_filtered_holdings = []
+    for holdings in filtered_historical_holdings.values():
+        for holding in holdings:
+            if holding not in unique_filtered_holdings:
+                unique_filtered_holdings.append(holding)
+
+    filtered_sector_holdings = {
+        sector: [
+            holding
+            for holding in sectors_holdings[sector]
+            if holding in unique_filtered_holdings
+        ]
+        for sector in sectors_holdings.keys()
+    }
+
+    return filtered_historical_holdings, filtered_sector_holdings
+
+
+def generate_window_dates_not_overlapping(start_date, end_date, n_windows):
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+    dates = pd.date_range(start=start_date, end=end_date, periods=n_windows + 1)
+    dates = dates.strftime("%Y-%m-%d").tolist()
+    date_ranges = {
+        f"window_{i+1}": {
+            "start_date": dates[i],
+            "end_date": (pd.to_datetime(dates[i + 1]) - pd.DateOffset(days=1)).strftime(
+                "%Y-%m-%d"
+            ),
+        }
+        for i in range(n_windows)
+    }
+    return date_ranges
+
+
+def split_train_test_dates(start_date_str, end_date_str, test_proportion):
+    start_date = pd.to_datetime(start_date_str)
+    end_date = pd.to_datetime(end_date_str)
+    total_days = (end_date - start_date).days + 1
+    test_days = int(round(total_days * test_proportion))
+    if test_days < 1 and test_proportion > 0:
+        test_days = 1
+    if test_days > total_days:
+        test_days = total_days
+    test_start_date = end_date - pd.Timedelta(days=test_days - 1)
+    train_end_date = test_start_date - pd.Timedelta(days=1)
+    if test_proportion == 0:
+        train_end_date = end_date
+        test_start_date = None
+    result = {
+        "train": {
+            "start_date": str(start_date.date()),
+            "end_date": str(train_end_date.date()) if train_end_date else None,
+        },
+        "test": {
+            "start_date": str(test_start_date.date()) if test_start_date else None,
+            "end_date": str(end_date.date()) if test_start_date else None,
+        },
+    }
+
+    return result
+
+
+def spot_on(df, ending_string):
+
+    filtered_df = df.copy()
+    target_columns = [column for column in df if column.endswith(ending_string)]
+    filtered_df = filtered_df[target_columns]
+    filtered_df.columns = [column.removesuffix(ending_string) for column in filtered_df]
+    return filtered_df
+
+
+def format_datetime_df(df):
+    formatted_df = df.copy()
+    if ("date" in df.columns) and ("Date" not in df.columns):
+        formatted_df["date"] = pd.to_datetime(formatted_df["date"])
+        formatted_df.set_index("date", inplace=True)
+        return formatted_df
+    elif ("Date" in df.columns) and ("date" not in df.columns):
+        formatted_df["Date"] = pd.to_datetime(formatted_df["Date"])
+        formatted_df.set_index("Date", inplace=True)
+        return formatted_df
+    else:
+        raise ValueError("No date columns")

@@ -13,7 +13,11 @@ from momento_capital.transformers import (
     calculate_relative_volatility_on_prices,
     calculate_lower_bb,
 )
-from momento_capital.utilities import apply_function_by_groups, func_by_groups
+from momento_capital.utilities import (
+    apply_function_by_groups,
+    func_by_groups,
+    apply_function_to_data,
+)
 
 
 class SectorFundamentals:
@@ -1547,6 +1551,81 @@ class TrailingStopSMA:
                 "SMA": current_sma.loc[asset],
             }
             decision[asset] = current_price.loc[asset] >= current_sma.loc[asset]
+
+        return decision, details
+
+
+class TrailingStopVolatilityStd:
+    def __init__(
+        self,
+        threshold,
+        df,
+        window_size,
+        z_score_window_size,
+    ):
+        self.threshold = threshold
+        self.df = df
+        volatility_df = apply_function_to_data(
+            df=df,
+            function=calculate_relative_volatility_on_prices,
+            returns_period=1,
+            window_size=window_size,
+        )
+        self.z_vol_df = apply_function_to_data(
+            df=volatility_df,
+            function=lambda array: (
+                array[
+                    -len(
+                        np.lib.stride_tricks.sliding_window_view(
+                            array, window_shape=z_score_window_size, axis=0
+                        )
+                    ) :
+                ]
+                - np.mean(
+                    np.lib.stride_tricks.sliding_window_view(
+                        array, window_shape=z_score_window_size, axis=0
+                    ),
+                    axis=2,
+                )
+            )
+            / np.std(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=z_score_window_size, axis=0
+                ),
+                axis=2,
+            ),
+        )
+
+    def evaluate_risk(self, simulator, date):
+
+        assets = list(simulator.positions.keys())
+        current_price = self.df.loc[date]
+        current_z_volatility = self.z_vol_df.loc[date]
+        details = {}
+        decision = {}
+
+        for asset_idx, asset in enumerate(assets):
+            details[asset] = {
+                "Price": current_price.loc[asset],
+                "Z_Volatility": current_z_volatility.loc[asset],
+            }
+            decision[asset] = current_z_volatility.loc[asset] <= self.threshold
+
+        return decision, details
+
+    def evaluate_prospects(self, simulator, prospects, date):
+
+        current_price = self.df.loc[date]
+        current_z_volatility = self.z_vol_df.loc[date]
+        details = {}
+        decision = {}
+
+        for asset_idx, asset in enumerate(prospects):
+            details[asset] = {
+                "Price": current_price.loc[asset],
+                "Z_Volatility": current_z_volatility.loc[asset],
+            }
+            decision[asset] = current_z_volatility.loc[asset] <= self.threshold
 
         return decision, details
 

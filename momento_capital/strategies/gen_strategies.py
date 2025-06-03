@@ -1,4 +1,4 @@
-from .strategies import arjun, dinorah, checkster
+from .strategies import arjun, dinorah, checkster, parham
 
 
 def gen_arjun(
@@ -96,4 +96,33 @@ def gen_checkster(
         rebalance_freq=int(gen[2]),
         n_top=int(gen[3]),
         roc_stddev_period=int(gen[4]),
+    )
+
+
+def gen_parham(
+    gen,
+    start_date,
+    end_date,
+    historical_holdings,
+    sector_holdings,
+    holdings_data,
+    etfs_data,
+):
+    return parham(
+        freq=int(gen[0]),
+        etfs_sharpe_window_size=int(gen[1]),
+        etfs_z_sharpe_window_size=int(gen[2]),
+        holdings_roc_window_size=int(gen[3]),
+        holdings_roc_mean_window_size=int(gen[4]),
+        holdings_z_roc_window_size=int(gen[5]),
+        manager_vol_window_size=int(gen[6]),
+        manager_z_vol_window_size=int(gen[7]),
+        manager_threshold=float(gen[8]),
+        holdings_n_top_avg_roc=int(gen[9]),
+        start_date=start_date,
+        end_date=end_date,
+        historical_holdings=historical_holdings,
+        sector_holdings=sector_holdings,
+        holdings_data=holdings_data,
+        etfs_data=etfs_data,
     )

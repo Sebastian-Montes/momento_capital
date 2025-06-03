@@ -4,10 +4,12 @@ from momento_capital.portfolio.simulators import (
     TrailingStopBollinger,
     TrailingStopSMA,
 )
+from ..portfolio.utilities import TrailingStopVolatilityStd
 from momento_capital.transformers import (
     calculate_relative_volatility_on_prices,
     calculate_simple_moving_average,
     calculate_rsi,
+    calculate_returns,
 )
 from momento_capital.utilities import (
     find_current_filtered_active_holdings,
@@ -18,7 +20,14 @@ from momento_capital.utilities import (
     extract_common_detailed_signal,
 )
 import pandas as pd
-
+import numpy as np
+from ..utilities import (
+    forward_fill_until_last_value,
+    preprocess_data,
+    process_data,
+    remove_almost_full_nan_rows,
+    find_active_holdings,
+)
 from momento_capital.strategies.checkster_utilities import extract_active_holdings
 
 from pandas.tseries.offsets import DateOffset
@@ -1088,4 +1097,204 @@ def checkster(
 
     portfolio.simulate(signals=final_dictionary)
 
+    return portfolio
+
+
+def parham(
+    freq,
+    etfs_sharpe_window_size,
+    etfs_z_sharpe_window_size,
+    holdings_roc_window_size,
+    holdings_roc_mean_window_size,
+    holdings_z_roc_window_size,
+    manager_vol_window_size,
+    manager_z_vol_window_size,
+    manager_threshold,
+    holdings_n_top_avg_roc,
+    start_date,
+    end_date,
+    historical_holdings,
+    sector_holdings,
+    holdings_data,
+    etfs_data,
+):
+    etfs_max_window = etfs_sharpe_window_size + etfs_z_sharpe_window_size
+    holdings_max_window = max(
+        holdings_roc_window_size + holdings_z_roc_window_size,
+        holdings_roc_window_size + holdings_roc_mean_window_size,
+        manager_vol_window_size + manager_z_vol_window_size,
+    )
+    etfs_data.replace(0, np.nan, inplace=True)
+    holdings_data.replace(0, np.nan, inplace=True)
+    etfs_data = forward_fill_until_last_value(remove_almost_full_nan_rows(df=etfs_data))
+    holdings_data = forward_fill_until_last_value(
+        remove_almost_full_nan_rows(df=holdings_data)
+    )
+
+    etfs_data, etfs_first_valid_date = preprocess_data(
+        filtered_df=etfs_data,
+        start_date=start_date,
+        end_date=end_date,
+        max_window=etfs_max_window,
+    )
+    holdings_data, holdings_first_valid_date = preprocess_data(
+        filtered_df=holdings_data,
+        start_date=start_date,
+        end_date=end_date,
+        max_window=holdings_max_window,
+    )
+
+    etfs_data = process_data(
+        df=etfs_data, start_date=etfs_first_valid_date, max_window=etfs_max_window
+    )
+    holdings_data = process_data(
+        df=holdings_data,
+        start_date=holdings_first_valid_date,
+        max_window=holdings_max_window,
+    )
+    etfs_vol_df = apply_function_to_data(
+        df=etfs_data,
+        function=calculate_relative_volatility_on_prices,
+        returns_period=1,
+        window_size=etfs_sharpe_window_size,
+    )
+    etfs_roc_df = apply_function_to_data(
+        df=etfs_data, function=calculate_returns, period=etfs_sharpe_window_size
+    )
+
+    etfs_sharpe_df = etfs_roc_df / etfs_vol_df
+
+    etfs_z_sharpe_df = apply_function_to_data(
+        df=etfs_sharpe_df,
+        function=lambda array: (
+            array[
+                -len(
+                    np.lib.stride_tricks.sliding_window_view(
+                        array, window_shape=etfs_z_sharpe_window_size, axis=0
+                    )
+                ) :
+            ]
+            - np.mean(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=etfs_z_sharpe_window_size, axis=0
+                ),
+                axis=2,
+            )
+        )
+        / np.std(
+            np.lib.stride_tricks.sliding_window_view(
+                array, window_shape=etfs_z_sharpe_window_size, axis=0
+            ),
+            axis=2,
+        ),
+    )
+
+    etfs_signal = {
+        date: [
+            etf
+            for etf in dict(
+                filter(
+                    lambda items: items[1] <= 0,
+                    etfs_z_sharpe_df.loc[date].to_dict().items(),
+                )
+            ).keys()
+        ]
+        for date in etfs_z_sharpe_df.index.astype(str).tolist()[::freq]
+    }
+    holdings_roc_df = apply_function_to_data(
+        df=holdings_data, function=calculate_returns, period=holdings_roc_window_size
+    )
+
+    holdings_roc_mean_df = apply_function_to_data(
+        df=holdings_roc_df,
+        function=calculate_simple_moving_average,
+        window_size=holdings_roc_mean_window_size,
+    )
+
+    holdings_z_roc_df = apply_function_to_data(
+        df=holdings_roc_df,
+        function=lambda array: (
+            array[
+                -len(
+                    np.lib.stride_tricks.sliding_window_view(
+                        array, window_shape=holdings_z_roc_window_size, axis=0
+                    )
+                ) :
+            ]
+            - np.mean(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=holdings_z_roc_window_size, axis=0
+                ),
+                axis=2,
+            )
+        )
+        / np.std(
+            np.lib.stride_tricks.sliding_window_view(
+                array, window_shape=holdings_z_roc_window_size, axis=0
+            ),
+            axis=2,
+        ),
+    )
+
+    holdings_signal = {}
+    for date, etfs in etfs_signal.items():
+        current_active_holdings = find_active_holdings(
+            str_date=date, interval_keyed_historical_holdings=historical_holdings
+        )
+        current_active_holdings = [
+            holding
+            for holding in current_active_holdings
+            if any(holding in sector_holdings[etf] for etf in etfs)
+        ]
+        deviated_holdings = list(
+            dict(
+                filter(
+                    lambda items: items[1] <= 0,
+                    holdings_z_roc_df[
+                        [h for h in holdings_z_roc_df if h in current_active_holdings]
+                    ]
+                    .dropna(axis=1)
+                    .loc[date]
+                    .to_dict()
+                    .items(),
+                )
+            ).keys()
+        )
+        n_top_avg_roc_holdings = list(
+            dict(
+                sorted(
+                    holdings_roc_mean_df[
+                        [h for h in holdings_z_roc_df if h in current_active_holdings]
+                    ]
+                    .loc[date]
+                    .to_dict()
+                    .items(),
+                    key=lambda items: items[1],
+                    reverse=True,
+                )
+            ).keys()
+        )[:holdings_n_top_avg_roc]
+        holdings_signal[date] = list(
+            set(n_top_avg_roc_holdings) & set(deviated_holdings)
+        )
+    holdings_signal = clean_signal(holdings_signal)
+
+    manager = TrailingStopVolatilityStd(
+        threshold=manager_threshold,
+        df=holdings_data,
+        window_size=manager_vol_window_size,
+        z_score_window_size=manager_z_vol_window_size,
+    )
+
+    portfolio = FreqPortfolioSimulator(
+        initial_cash=100_000,
+        target_weight=1,
+        df=holdings_data,
+        id_structure="1111",
+        manager=manager,
+        evaluator=None,
+        seed=1,
+        verbose=0,
+    )
+    portfolio.simulate(signals=holdings_signal)
     return portfolio
