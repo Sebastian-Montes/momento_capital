@@ -1,6 +1,16 @@
 import pandas as pd
 
 
+def custom_serializer(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 def apply_function_by_groups(df, func):
     groups = split_df_by_nan_config(df)
     result = [func(group) for group in groups]
