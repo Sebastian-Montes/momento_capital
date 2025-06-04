@@ -53,19 +53,17 @@ def dinorah(
     benchmark_series,
 ):
 
-    filtered_etfs_df, etfs_first_valid_date = process_data(
+    filtered_etfs_df, etfs_first_valid_date = preprocess_data(
         filtered_df=etfs_df,
         start_date=start_date,
         end_date=end_date,
-        freq=freq,
         max_window=etfs_vol_window_size,
     )
 
-    filtered_holdings_df, holdings_first_valid_date = process_data(
+    filtered_holdings_df, holdings_first_valid_date = preprocess_data(
         filtered_df=holdings_df,
         start_date=start_date,
         end_date=end_date,
-        freq=freq,
         max_window=max(
             holdings_rsi_window_size, holdings_vol_window_size, manager_sma_window_size
         ),
@@ -336,18 +334,16 @@ def arjun(
     portfolio_id="_id_",
 ):
 
-    filtered_holdings_df, holdings_first_valid_date = process_data(
+    filtered_holdings_df, holdings_first_valid_date = preprocess_data(
         filtered_df=filtered_holdings_df,
         start_date=start_date,
         end_date=end_date,
-        freq=freq,
         max_window=holdings_largest_window,
     )
-    filtered_etfs_df, etfs_first_valid_date = process_data(
+    filtered_etfs_df, etfs_first_valid_date = preprocess_data(
         filtered_df=filtered_etfs_df,
         start_date=start_date,
         end_date=end_date,
-        freq=freq,
         max_window=etfs_largest_window,
     )
 
@@ -1295,6 +1291,209 @@ def parham(
         evaluator=None,
         seed=1,
         verbose=0,
+    )
+    portfolio.simulate(signals=holdings_signal)
+    return portfolio
+
+
+def arvind(
+    freq,
+    etfs_roc_window_size,
+    etfs_z_roc_window_size,
+    holdings_sma_window_size,
+    holdings_vol_window_size,
+    holdings_z_vol_window_size,
+    holdings_vol_mean_window_size,
+    manager_window_size,
+    manager_factor,
+    holdings_vol_mean_n_top,
+    etfs_z_roc_upper_limit,
+    holdings_z_vol_upper_limit,
+    start_date,
+    end_date,
+    etfs_data,
+    holdings_data,
+    interval_keyed_historical_holdings,
+    sector_holdings,
+    portfolio_id,
+):
+    etfs_max_window = etfs_z_roc_window_size + etfs_roc_window_size
+
+    holdings_max_window = max(
+        holdings_sma_window_size,
+        holdings_vol_window_size + holdings_z_vol_window_size,
+        holdings_vol_window_size + holdings_vol_mean_window_size,
+        manager_window_size,
+    )
+    etfs_data.replace(0, np.nan, inplace=True)
+    holdings_data.replace(0, np.nan, inplace=True)
+    etfs_data = forward_fill_until_last_value(remove_almost_full_nan_rows(df=etfs_data))
+    holdings_data = forward_fill_until_last_value(
+        remove_almost_full_nan_rows(df=holdings_data)
+    )
+    etfs_data, etfs_first_valid_date = preprocess_data(
+        filtered_df=etfs_data,
+        start_date=start_date,
+        end_date=end_date,
+        max_window=etfs_max_window,
+    )
+    holdings_data, holdings_first_valid_date = preprocess_data(
+        filtered_df=holdings_data,
+        start_date=start_date,
+        end_date=end_date,
+        max_window=holdings_max_window,
+    )
+
+    etfs_data = process_data(
+        df=etfs_data, start_date=etfs_first_valid_date, max_window=etfs_max_window
+    )
+    holdings_data = process_data(
+        df=holdings_data,
+        start_date=holdings_first_valid_date,
+        max_window=holdings_max_window,
+    )
+    etfs_roc_df = apply_function_to_data(
+        df=etfs_data,
+        function=calculate_returns,
+        period=etfs_roc_window_size,
+    )
+
+    etfs_z_roc_df = apply_function_to_data(
+        df=etfs_roc_df,
+        function=lambda array: (
+            array[
+                -len(
+                    np.lib.stride_tricks.sliding_window_view(
+                        array, window_shape=etfs_z_roc_window_size, axis=0
+                    )
+                ) :
+            ]
+            - np.mean(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=etfs_z_roc_window_size, axis=0
+                ),
+                axis=2,
+            )
+        )
+        / np.std(
+            np.lib.stride_tricks.sliding_window_view(
+                array, window_shape=etfs_z_roc_window_size, axis=0
+            ),
+            axis=2,
+        ),
+    )
+
+    etfs_signal = {
+        date: [
+            etf
+            for etf in dict(
+                filter(
+                    lambda items: items[1] <= etfs_z_roc_upper_limit,
+                    etfs_z_roc_df.loc[date].to_dict().items(),
+                )
+            ).keys()
+        ]
+        for date in etfs_z_roc_df.index.astype(str).tolist()[::freq]
+    }
+
+    holdings_sma_df = apply_function_to_data(
+        df=holdings_data,
+        function=calculate_simple_moving_average,
+        window_size=holdings_sma_window_size,
+    )
+
+    holdings_vol_df = apply_function_to_data(
+        df=holdings_data,
+        function=calculate_relative_volatility_on_prices,
+        returns_period=1,
+        window_size=holdings_vol_window_size,
+    )
+
+    holdings_vol_mean_df = apply_function_to_data(
+        df=holdings_vol_df,
+        function=calculate_simple_moving_average,
+        window_size=holdings_vol_mean_window_size,
+    )
+
+    holdings_z_vol_df = apply_function_to_data(
+        df=holdings_vol_df,
+        function=lambda array: (
+            array[
+                -len(
+                    np.lib.stride_tricks.sliding_window_view(
+                        array, window_shape=holdings_z_vol_window_size, axis=0
+                    )
+                ) :
+            ]
+            - np.mean(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=holdings_z_vol_window_size, axis=0
+                ),
+                axis=2,
+            )
+        )
+        / (
+            np.std(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=holdings_z_vol_window_size, axis=0
+                ),
+                axis=2,
+            )
+        ),
+    )
+
+    holdings_signal = {}
+    for date, etfs in etfs_signal.items():
+        current_active_holdings = find_active_holdings(
+            str_date=date,
+            interval_keyed_historical_holdings=interval_keyed_historical_holdings,
+        )
+        current_active_holdings = [
+            holding
+            for holding in current_active_holdings
+            if any(holding in sector_holdings[etf] for etf in etfs)
+        ]
+        downed_holdings = []
+        for holding in holdings_data:
+            if holding in current_active_holdings:
+                if (
+                    holdings_data.loc[date, holding]
+                    < holdings_sma_df.loc[date, holding]
+                ):
+                    downed_holdings.append(holding)
+        stable_holdings = [
+            holding
+            for holding in downed_holdings
+            if holdings_z_vol_df.loc[date, holding] <= holdings_z_vol_upper_limit
+        ]
+        most_volatile_holdings = list(
+            dict(
+                sorted(
+                    holdings_vol_mean_df[stable_holdings].loc[date].to_dict().items(),
+                    key=lambda items: items[1],
+                    reverse=True,
+                )
+            ).keys()
+        )[:holdings_vol_mean_n_top]
+        holdings_signal[date] = most_volatile_holdings
+    holdings_signal = clean_signal(holdings_signal)
+
+    manager = TrailingStopBollinger(
+        df=holdings_data,
+        window_size=manager_window_size,
+        bollinger_factor=manager_factor,
+    )
+
+    portfolio = FreqPortfolioSimulator(
+        initial_cash=100_000,
+        target_weight=1,
+        df=holdings_data,
+        id_structure="1111-1111-1111-1111",
+        manager=manager,
+        evaluator=None,
+        seed=1,
+        verbose=0,
+        portfolio_id=portfolio_id,
     )
     portfolio.simulate(signals=holdings_signal)
     return portfolio

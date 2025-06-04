@@ -1,4 +1,4 @@
-from .strategies import arjun, dinorah, checkster, parham
+from .strategies import arjun, dinorah, checkster, parham, arvind
 
 
 def gen_arjun(
@@ -125,4 +125,37 @@ def gen_parham(
         sector_holdings=sector_holdings,
         holdings_data=holdings_data,
         etfs_data=etfs_data,
+    )
+
+
+def gen_arvind(
+    gen,
+    start_date,
+    end_date,
+    etfs_data,
+    holdings_data,
+    interval_keyed_historical_holdings,
+    sector_holdings,
+    portfolio_id,
+):
+    return arvind(
+        freq=int(gen[0]),
+        etfs_roc_window_size=int(gen[1]),
+        etfs_z_roc_window_size=int(gen[2]),
+        holdings_sma_window_size=int(gen[3]),
+        holdings_vol_window_size=int(gen[4]),
+        holdings_z_vol_window_size=int(gen[5]),
+        holdings_vol_mean_window_size=int(gen[6]),
+        manager_window_size=int(gen[7]),
+        manager_factor=float(gen[8]),
+        holdings_vol_mean_n_top=int(gen[9]),
+        etfs_z_roc_upper_limit=float(gen[10]),
+        holdings_z_vol_upper_limit=float(gen[11]),
+        start_date=start_date,
+        end_date=end_date,
+        etfs_data=etfs_data,
+        holdings_data=holdings_data,
+        interval_keyed_historical_holdings=interval_keyed_historical_holdings,
+        sector_holdings=sector_holdings,
+        portfolio_id=portfolio_id,
     )

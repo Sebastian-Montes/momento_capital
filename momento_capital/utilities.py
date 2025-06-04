@@ -88,24 +88,6 @@ def find_active_interval(str_date, interval_keyed_historical_holdings):
     return interval
 
 
-def preprocess_data(filtered_df, start_date, end_date, max_window):
-    filtered_df = filtered_df.loc[filtered_df.index <= end_date].copy()
-
-    filtered_df_dates = [date.strftime("%Y-%m-%d") for date in filtered_df.index]
-
-    first_valid_date = get_next_closest_date(
-        target_date=start_date, date_list=filtered_df_dates
-    )
-    not_enough_columns = [
-        c
-        for c in (filtered_df.notna().sum() <= max_window)
-        .loc[filtered_df.notna().sum() <= max_window]
-        .index.tolist()
-    ]
-    filtered_df.drop(not_enough_columns, axis=1, inplace=True)
-    return filtered_df, first_valid_date
-
-
 def get_next_closest_date(target_date, date_list):
     target_date = pd.to_datetime(target_date)
     date_series = pd.to_datetime(pd.Series(date_list))
@@ -278,6 +260,25 @@ def forward_fill_until_last_value(df):
         result[col] = result[col].where(mask)
 
     return result
+
+
+def preprocess_data(filtered_df, start_date, end_date, max_window):
+    filtered_df = filtered_df.loc[filtered_df.index <= end_date].copy()
+
+    filtered_df_dates = [date.strftime("%Y-%m-%d") for date in filtered_df.index]
+
+    first_valid_date = get_next_closest_date(
+        target_date=start_date, date_list=filtered_df_dates
+    )
+    not_enough_columns = [
+        c
+        for c in (filtered_df.notna().sum() <= max_window)
+        .loc[filtered_df.notna().sum() <= max_window]
+        .index.tolist()
+    ]
+    filtered_df.drop(not_enough_columns, axis=1, inplace=True)
+    filtered_df.dropna(how="all", axis=1, inplace=True)
+    return filtered_df, first_valid_date
 
 
 def process_data(df, start_date, max_window):
