@@ -2167,7 +2167,10 @@ class PortfolioEvaluator:
         return pd.DataFrame(metrics.items(), columns=["metric", "value"])
 
     def correlation_with_benchmark(self):
-        return self.equity_data.corr(self.benchmark_series)
+        aligned = pd.concat([self.equity_data, self.benchmark_series], axis=1).dropna()
+        corr = aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
+
+        return corr
 
     def _calculate_alpha(self, equity_df):
 

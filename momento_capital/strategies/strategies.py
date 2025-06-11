@@ -28,6 +28,7 @@ from ..utilities import (
     remove_almost_full_nan_rows,
     find_active_holdings,
 )
+import json
 from momento_capital.strategies.checkster_utilities import extract_active_holdings
 
 from pandas.tseries.offsets import DateOffset
@@ -700,6 +701,9 @@ def arjun(
 
     holdings_signal = {k: list(v.keys()) for k, v in holdings_short_sma_signal.items()}
     cleaned_signal = clean_signal(holdings_signal)
+    # with open(r"/home/baula/Downloads/arjun.json", "w") as f:
+    #     json.dump(cleaned_signal, f, indent=4)
+    # filtered_holdings_df.to_csv(r"/home/baula/Downloads/arjun.csv")
     if all(len(s) == 0 for s in cleaned_signal.values()):
         return [{"date": date, "value": 100000} for date in dates]
 
@@ -1096,7 +1100,7 @@ def checkster(
     return portfolio
 
 
-def parham(
+def diana(
     freq,
     etfs_sharpe_window_size,
     etfs_z_sharpe_window_size,
@@ -1113,6 +1117,8 @@ def parham(
     sector_holdings,
     holdings_data,
     etfs_data,
+    portfolio_id,
+    benchmark_series,
 ):
     etfs_max_window = etfs_sharpe_window_size + etfs_z_sharpe_window_size
     holdings_max_window = max(
@@ -1282,15 +1288,18 @@ def parham(
         z_score_window_size=manager_z_vol_window_size,
     )
 
+    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
+
     portfolio = FreqPortfolioSimulator(
         initial_cash=100_000,
         target_weight=1,
         df=holdings_data,
         id_structure="1111",
         manager=manager,
-        evaluator=None,
+        evaluator=evaluator,
         seed=1,
         verbose=0,
+        portfolio_id=portfolio_id,
     )
     portfolio.simulate(signals=holdings_signal)
     return portfolio
@@ -1316,6 +1325,7 @@ def arvind(
     interval_keyed_historical_holdings,
     sector_holdings,
     portfolio_id,
+    benchmark_series,
 ):
     etfs_max_window = etfs_z_roc_window_size + etfs_roc_window_size
 
@@ -1484,13 +1494,15 @@ def arvind(
         bollinger_factor=manager_factor,
     )
 
+    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
+
     portfolio = FreqPortfolioSimulator(
         initial_cash=100_000,
         target_weight=1,
         df=holdings_data,
         id_structure="1111-1111-1111-1111",
         manager=manager,
-        evaluator=None,
+        evaluator=evaluator,
         seed=1,
         verbose=0,
         portfolio_id=portfolio_id,
@@ -1499,7 +1511,7 @@ def arvind(
     return portfolio
 
 
-def myrna(
+def parham(
     freq,
     etfs_roc_window_size,
     etfs_z_roc_window_size,
@@ -1519,6 +1531,7 @@ def myrna(
     spy_historical_holdings,
     sector_holdings,
     portfolio_id,
+    benchmark_series,
 ):
 
     etfs_max_window = etfs_roc_window_size + etfs_z_roc_window_size
@@ -1700,13 +1713,15 @@ def myrna(
         z_score_window_size=manager_z_window_size,
     )
 
+    evaluator = PortfolioEvaluator(benchmark_series=benchmark_series)
+
     portfolio = FreqPortfolioSimulator(
         initial_cash=100_000,
         target_weight=1,
         df=holdings_data,
         id_structure="1111",
         manager=manager,
-        evaluator=None,
+        evaluator=evaluator,
         verbose=0,
         portfolio_id=portfolio_id,
     )

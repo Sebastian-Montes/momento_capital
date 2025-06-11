@@ -1,4 +1,4 @@
-from .strategies import arjun, dinorah, checkster, parham, arvind, myrna
+from .strategies import arjun, dinorah, checkster, parham, arvind, diana
 
 
 def gen_arjun(
@@ -101,30 +101,36 @@ def gen_checkster(
 
 def gen_parham(
     gen,
-    start_date,
-    end_date,
-    historical_holdings,
-    sector_holdings,
     holdings_data,
     etfs_data,
+    start_date,
+    end_date,
+    spy_historical_holdings,
+    sector_holdings,
+    portfolio_id,
+    benchmark_series,
 ):
     return parham(
         freq=int(gen[0]),
-        etfs_sharpe_window_size=int(gen[1]),
-        etfs_z_sharpe_window_size=int(gen[2]),
-        holdings_roc_window_size=int(gen[3]),
-        holdings_roc_mean_window_size=int(gen[4]),
-        holdings_z_roc_window_size=int(gen[5]),
-        manager_vol_window_size=int(gen[6]),
-        manager_z_vol_window_size=int(gen[7]),
-        manager_threshold=float(gen[8]),
-        holdings_n_top_avg_roc=int(gen[9]),
-        start_date=start_date,
-        end_date=end_date,
-        historical_holdings=historical_holdings,
-        sector_holdings=sector_holdings,
+        etfs_roc_window_size=int(gen[1]),
+        etfs_z_roc_window_size=int(gen[2]),
+        holdings_rsi_window_size=int(gen[3]),
+        holdings_rsi_lower_limit=int(gen[4]),
+        holdings_roc_window_size=int(gen[5]),
+        holdings_z_roc_window_size=int(gen[6]),
+        holdings_mean_roc_window_size=int(gen[7]),
+        manager_window_size=int(gen[8]),
+        manager_z_window_size=int(gen[9]),
+        manager_threshold=float(gen[10]),
+        holdings_mean_n_top=int(gen[11]),
         holdings_data=holdings_data,
         etfs_data=etfs_data,
+        start_date=start_date,
+        end_date=end_date,
+        spy_historical_holdings=spy_historical_holdings,
+        sector_holdings=sector_holdings,
+        portfolio_id=portfolio_id,
+        benchmark_series=benchmark_series,
     )
 
 
@@ -137,6 +143,7 @@ def gen_arvind(
     interval_keyed_historical_holdings,
     sector_holdings,
     portfolio_id,
+    benchmark_series,
 ):
     return arvind(
         freq=int(gen[0]),
@@ -158,37 +165,106 @@ def gen_arvind(
         interval_keyed_historical_holdings=interval_keyed_historical_holdings,
         sector_holdings=sector_holdings,
         portfolio_id=portfolio_id,
+        benchmark_series=benchmark_series,
     )
 
 
-def gen_myrna(
+def gen_diana(
     gen,
-    holdings_data,
-    etfs_data,
     start_date,
     end_date,
-    spy_historical_holdings,
+    historical_holdings,
     sector_holdings,
+    holdings_data,
+    etfs_data,
     portfolio_id,
+    benchmark_series,
 ):
-    return myrna(
+    return diana(
         freq=int(gen[0]),
-        etfs_roc_window_size=int(gen[1]),
-        etfs_z_roc_window_size=int(gen[2]),
-        holdings_rsi_window_size=int(gen[3]),
-        holdings_rsi_lower_limit=int(gen[4]),
-        holdings_roc_window_size=int(gen[5]),
-        holdings_z_roc_window_size=int(gen[6]),
-        holdings_mean_roc_window_size=int(gen[7]),
-        manager_window_size=int(gen[8]),
-        manager_z_window_size=int(gen[9]),
-        manager_threshold=float(gen[10]),
-        holdings_mean_n_top=int(gen[11]),
-        holdings_data=holdings_data,
-        etfs_data=etfs_data,
+        etfs_sharpe_window_size=int(gen[1]),
+        etfs_z_sharpe_window_size=int(gen[2]),
+        holdings_roc_window_size=int(gen[3]),
+        holdings_roc_mean_window_size=int(gen[4]),
+        holdings_z_roc_window_size=int(gen[5]),
+        manager_vol_window_size=int(gen[6]),
+        manager_z_vol_window_size=int(gen[7]),
+        manager_threshold=float(gen[8]),
+        holdings_n_top_avg_roc=int(gen[9]),
         start_date=start_date,
         end_date=end_date,
-        spy_historical_holdings=spy_historical_holdings,
+        historical_holdings=historical_holdings,
         sector_holdings=sector_holdings,
+        holdings_data=holdings_data,
+        etfs_data=etfs_data,
         portfolio_id=portfolio_id,
+        benchmark_series=benchmark_series,
     )
+
+
+# def gen_diana(
+#     gen,
+#     holdings_data,
+#     etfs_data,
+#     start_date,
+#     end_date,
+#     spy_historical_holdings,
+#     sector_holdings,
+#     portfolio_id,
+#     benchmark_series,
+# ):
+#     return diana(
+#         freq=int(gen[0]),
+#         etfs_roc_window_size=int(gen[1]),
+#         etfs_z_roc_window_size=int(gen[2]),
+#         holdings_rsi_window_size=int(gen[3]),
+#         holdings_rsi_lower_limit=int(gen[4]),
+#         holdings_roc_window_size=int(gen[5]),
+#         holdings_z_roc_window_size=int(gen[6]),
+#         holdings_mean_roc_window_size=int(gen[7]),
+#         manager_window_size=int(gen[8]),
+#         manager_z_window_size=int(gen[9]),
+#         manager_threshold=float(gen[10]),
+#         holdings_mean_n_top=int(gen[11]),
+#         holdings_data=holdings_data,
+#         etfs_data=etfs_data,
+#         start_date=start_date,
+#         end_date=end_date,
+#         spy_historical_holdings=spy_historical_holdings,
+#         sector_holdings=sector_holdings,
+#         portfolio_id=portfolio_id,
+#         benchmark_series=benchmark_series,
+#     )
+
+
+# def gen_parham(
+#     gen,
+#     start_date,
+#     end_date,
+#     historical_holdings,
+#     sector_holdings,
+#     holdings_data,
+#     etfs_data,
+#     portfolio_id,
+#     benchmark_series,
+# ):
+#     return parham(
+#         freq=int(gen[0]),
+#         etfs_sharpe_window_size=int(gen[1]),
+#         etfs_z_sharpe_window_size=int(gen[2]),
+#         holdings_roc_window_size=int(gen[3]),
+#         holdings_roc_mean_window_size=int(gen[4]),
+#         holdings_z_roc_window_size=int(gen[5]),
+#         manager_vol_window_size=int(gen[6]),
+#         manager_z_vol_window_size=int(gen[7]),
+#         manager_threshold=float(gen[8]),
+#         holdings_n_top_avg_roc=int(gen[9]),
+#         start_date=start_date,
+#         end_date=end_date,
+#         historical_holdings=historical_holdings,
+#         sector_holdings=sector_holdings,
+#         holdings_data=holdings_data,
+#         etfs_data=etfs_data,
+#         portfolio_id=portfolio_id,
+#         benchmark_series=benchmark_series,
+#     )
