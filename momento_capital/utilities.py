@@ -2,6 +2,46 @@ import pandas as pd
 import numpy as np
 
 
+def process_df_for_strategies(df, start_date, end_date, max_window):
+    """
+    Processes a DataFrame by forward-filling missing values, filtering rows based on a start date
+    and a maximum window size, and dropping columns with all missing values.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame with a datetime index. It may contain missing values.
+        start_date (str): The starting date in the format "YYYY-MM-DD" to filter the DataFrame.
+        max_window (int): The maximum number of rows to include before the start date.
+
+    Returns:
+        pd.DataFrame: A processed DataFrame with missing values forward-filled, filtered rows,
+        and columns with all missing values removed.
+    """
+
+    df.replace(0, np.nan, inplace=True)
+
+    df = df.loc[df.index <= end_date]
+
+    dates = [date.strftime("%Y-%m-%d") for date in df.index.tolist()]
+    first_valid_date = get_next_closest_date(target_date=start_date, date_list=dates)
+    first_valid_date_index = dates.index(first_valid_date)
+
+    processed_df = remove_almost_full_nan_rows(df=df)
+    processed_df = forward_fill_until_last_value(df=processed_df)
+
+    processed_df = processed_df.loc[
+        processed_df.index >= dates[first_valid_date_index - max_window + 1]
+    ]
+
+    not_enough_days = (len(processed_df) - processed_df.isna().sum()) < max_window
+    not_enough_days = not_enough_days[not_enough_days].index.tolist()
+    if len(not_enough_days) > 0:
+        processed_df.drop(not_enough_days, axis=1, inplace=True)
+
+    processed_df.dropna(how="all", inplace=True, axis=1)
+
+    return processed_df
+
+
 def custom_serializer(obj):
     if isinstance(obj, np.integer):
         return int(obj)
@@ -312,18 +352,13 @@ def process_data(df, start_date, max_window):
     return processed_df
 
 
-def remove_almost_full_nan_rows(df, significance_percectage=0.95):
-    nans_per_row = {
-        idx: len(df.loc[idx].isna().loc[df.loc[idx].isna()])
-        for idx in df.index.tolist()
-    }
-    rows_to_remove = [
-        idx
-        for idx, nan_count in nans_per_row.items()
-        if nan_count >= df.shape[1] * significance_percectage
-    ]
-    filtered_df = df.copy()
-    filtered_df.drop(rows_to_remove, inplace=True)
+def remove_almost_full_nan_rows(
+    df: pd.DataFrame, significance_percectage: float = 0.95
+) -> pd.DataFrame:
+    indexes = (
+        np.sum(np.isnan(df.values), axis=1) / df.shape[1] > significance_percectage
+    )
+    filtered_df = df.iloc[~indexes, :]
     return filtered_df
 
 
