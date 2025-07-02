@@ -12,6 +12,10 @@ import random
 import string
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from scipy.stats import norm
+import copy
+from functools import partial
+import datetime as dt
 
 
 class EventPortfolioSimulator:
@@ -26,9 +30,18 @@ class EventPortfolioSimulator:
         self.portfolio_id = portfolio_id
         self.verbose = verbose
 
-    def simulate(self, assets_df, signal):
-        self.assets_df = assets_df
+    def simulate(
+        self, assets_df, holding_state, spy_holdings_mask, allocation_function
+    ):
+        self.holding_state = holding_state
+        signal = self._holding_state_to_signal(
+            spy_holdings_mask=spy_holdings_mask, allocation_function=allocation_function
+        )
         self.signal = signal
+
+        assets_df = assets_df.loc[assets_df.index >= list(signal.keys())[0]]
+        self.assets_df = assets_df.copy()
+
         df_dates = assets_df.index.astype(str).tolist()
         signal_dates = list(signal.keys())
         if set(df_dates) != set(signal_dates):
@@ -71,13 +84,42 @@ class EventPortfolioSimulator:
                 self.portfolio_value += last_date_records[holding]["amount"] * increase
                 self.current_holdings[holding] = {
                     "amount": last_date_records[holding]["amount"] * (1 + increase),
-                    "allocation": last_date_records[holding]["allocation"]
-                    * (1 + increase),
                 }
+            for holding in sorted(holdings_returns.keys()):
+                self.current_holdings[holding]["allocation"] = (
+                    self.current_holdings[holding]["amount"] / self.portfolio_value
+                )
             self._raise_for_instruction(instruction=signal[self.today])
-            if len(signal[self.today]["sell"]) > 0:
-                for holding in signal[self.today]["sell"]:
-                    allocation_to_sell = signal[self.today]["sell"][holding]
+            selling_signal = copy.deepcopy(signal[self.today]["sell"])
+            buying_signal = copy.deepcopy(signal[self.today]["buy"])
+            repeating_assets = {
+                asset: target_allocation
+                for asset, target_allocation in buying_signal.items()
+                if asset in sorted(selling_signal.keys())
+            }
+            selling_signal = {
+                asset: allocation_to_sell
+                for asset, allocation_to_sell in selling_signal.items()
+                if asset not in repeating_assets
+            }
+            buying_signal = {
+                asset: allocation_to_buy
+                for asset, allocation_to_buy in buying_signal.items()
+                if asset not in repeating_assets
+            }
+            repeating_selling_assets = {
+                asset: target_allocation
+                for asset, target_allocation in repeating_assets.items()
+                if target_allocation < self.current_holdings[asset]["allocation"]
+            }
+            repeating_buying_assets = {
+                asset: target_allocation
+                for asset, target_allocation in repeating_assets.items()
+                if target_allocation > self.current_holdings[asset]["allocation"]
+            }
+
+            if len(selling_signal) > 0:
+                for holding, allocation_to_sell in selling_signal.items():
                     if allocation_to_sell == 1:
                         self._sell(asset=holding, quantity="all")
                     else:
@@ -86,12 +128,42 @@ class EventPortfolioSimulator:
                             quantity=allocation_to_sell
                             * self.current_holdings[holding]["amount"],
                         )
-            if len(signal[self.today]["buy"]) > 0:
-                for holding in signal[self.today]["buy"]:
-                    allocation_to_buy = signal[self.today]["buy"][holding]
-                    self._buy(
-                        asset=holding, quantity=self.portfolio_value * allocation_to_buy
+            if len(repeating_assets) > 0:
+                for holding, target_allocation in repeating_selling_assets.items():
+                    allocation_diff = (
+                        self.current_holdings[holding]["allocation"] - target_allocation
                     )
+                    amount_to_sell = allocation_diff * self.portfolio_value
+                    self._sell(
+                        asset=holding,
+                        quantity=amount_to_sell,
+                    )
+                for i, (holding, target_allocation) in enumerate(
+                    repeating_buying_assets.items()
+                ):
+                    allocation_diff = (
+                        target_allocation - self.current_holdings[holding]["allocation"]
+                    )
+                    amount_to_buy = allocation_diff * self.portfolio_value
+                    if (
+                        len(buying_signal) == 0
+                        and i == len(repeating_buying_assets) - 1
+                        and amount_to_buy > self.liquid_money
+                    ):
+                        amount_to_buy = self.liquid_money
+                    self._buy(
+                        asset=holding,
+                        quantity=amount_to_buy,
+                    )
+            if len(buying_signal) > 0:  # {}
+                for holding, allocation_to_buy in buying_signal.items():
+                    quantity_to_buy = allocation_to_buy * self.portfolio_value
+                    if (
+                        holding == list(sorted(buying_signal.keys()))[-1]
+                        and quantity_to_buy > self.liquid_money
+                    ):
+                        quantity_to_buy = self.liquid_money
+                    self._buy(asset=holding, quantity=quantity_to_buy)
             if self.today != self.dates[-1]:
                 self._check_for_delisted()
             self.history[self.today] = self.current_holdings
@@ -175,12 +247,9 @@ class EventPortfolioSimulator:
 
     def _buy(self, asset, quantity):
         if quantity > self.liquid_money:
-            if quantity - self.liquid_money < 0.0001:
-                quantity = self.liquid_money
-            else:
-                raise ValueError(
-                    f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money:.2f}"
-                )
+            raise ValueError(
+                f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money}"
+            )
         self.trades.append(
             {
                 "date": self.today,
@@ -258,19 +327,6 @@ class EventPortfolioSimulator:
                         f"Mismatch on instruction: {asset} asset not in assets df"
                     )
 
-    def save_to_excel(self, file_path):
-        equity = pd.DataFrame(self.equity)
-        trades = pd.DataFrame(self.trades)
-        holdings = pd.DataFrame(self.holdings)
-
-        dataframes = [equity, trades, holdings]
-        sheet_names = ["Equity", "Trades", "Holdings"]
-        save_dataframes_to_excel(
-            dataframes=dataframes,
-            sheet_names=sheet_names,
-            file_name=f"{file_path}",
-        )
-
     def plot_equity(self):
         equity_df = pd.DataFrame(self.equity)
         equity_df["date"] = pd.to_datetime(equity_df["date"])
@@ -304,6 +360,225 @@ class EventPortfolioSimulator:
                     }
                 )
         return holdings
+
+    def holding_state_to_buy_sell_masks(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        This function processes the holding state DataFrame to create buy and sell masks.
+        Args:
+            holding_state_df (pd.DataFrame): DataFrame indicating whether an asset is held on a given day.
+        Returns:
+            tuple: A tuple containing two DataFrames:
+                - buys_mask: DataFrame indicating buy signals.
+                - sells_mask: DataFrame indicating sell signals.
+        """
+
+        holding_state_df = self.holding_state
+
+        buys_mask = pd.DataFrame(
+            False,
+            index=holding_state_df.index,
+            columns=holding_state_df.columns,
+            dtype=bool,
+        )
+        sells_mask = pd.DataFrame(
+            False,
+            index=holding_state_df.index,
+            columns=holding_state_df.columns,
+            dtype=bool,
+        )
+
+        for ticker in holding_state_df.columns:
+            holding_indices = np.where(holding_state_df[ticker])[0]
+            consecutive_days_in_portfolio = np.split(
+                holding_indices, np.where(np.diff(holding_indices) != 1)[0] + 1
+            )
+
+            if len(holding_indices) > 0:
+                buy_signal_indices = np.array([], dtype=int)
+                sell_signal_indices = np.array([], dtype=int)
+
+                for i in range(len(consecutive_days_in_portfolio)):
+                    buy_signal_indices = np.append(
+                        buy_signal_indices, consecutive_days_in_portfolio[i][0]
+                    )
+                    if consecutive_days_in_portfolio[i][-1] + 1 < len(
+                        holding_state_df.index
+                    ):
+                        sell_signal_indices = np.append(
+                            sell_signal_indices,
+                            consecutive_days_in_portfolio[i][-1] + 1,
+                        )
+
+                buys_mask[ticker].iloc[buy_signal_indices] = True
+                sells_mask[ticker].iloc[sell_signal_indices] = True
+
+        return buys_mask, sells_mask
+
+    def mask_to_signal(self):
+
+        buy_dict = {}
+        sell_dict = {}
+        for date in self.buy_mask.index:
+            buy_dict[date.strftime("%Y-%m-%d")] = self.buy_mask.columns[
+                self.buy_mask.loc[date] == True
+            ].tolist()
+            sell_dict[date.strftime("%Y-%m-%d")] = self.sell_mask.columns[
+                self.sell_mask.loc[date] == True
+            ].tolist()
+
+        return buy_dict, sell_dict
+
+    def _sell_signal_processor(self) -> dict:
+        """This function processes the sell signal dictionary to create a new dictionary where
+        a sell signal never occurs if there is no previous buy signal for that date.
+        Args:
+            sell_signal (dict): A dictionary where keys are dates and values are lists of assets to sell.
+            buy_signal (dict): A dictionary where keys are dates and values are lists of assets to buy.
+        """
+
+        processed_signal = {}
+        assets_that_can_be_sold = []
+
+        for date, sell_call in self.sell_signal.items():
+            buy_call = self.buy_signal[date]
+            confirmed_sells = []
+
+            for sell in sell_call:
+                if sell in assets_that_can_be_sold:
+                    confirmed_sells.append(sell)
+                    assets_that_can_be_sold.remove(sell)
+
+            processed_signal[date] = confirmed_sells
+
+            assets_that_can_be_sold += buy_call
+
+        return processed_signal
+
+    def _buy_sell_formater(
+        self, spy_holdings_mask: pd.DataFrame, allocation_function: partial
+    ) -> dict:
+        """
+        This function processes the buy and sell signals to create a rebalance signal dictionary.
+        Args:
+            buy_signal (dict): A dictionary where keys are dates and values are lists of assets to buy.
+            sell_signal (dict): A dictionary where keys are dates and values are lists of assets to sell.
+        Returns:
+            dict: A dictionary where keys are dates and values are dictionaries with buy and sell signals.
+        """
+
+        buy_signal = self.buy_signal
+        sell_signal = self.sell_signal
+
+        if set(buy_signal.keys()) != set(sell_signal.keys()):
+            raise ValueError("Buy and sell signals must have the same keys (dates).")
+
+        date_first_buy = next((k for k, v in buy_signal.items() if len(v) > 0), None)
+        date_first_buy = dt.datetime.strptime(date_first_buy, "%Y-%m-%d")
+        dates_after_buy = [
+            key
+            for key in buy_signal.keys()
+            if dt.datetime.strptime(key, "%Y-%m-%d") >= date_first_buy
+        ]
+        buy_signal = {key: buy_signal[key] for key in dates_after_buy}
+
+        rebalance_signal = {}
+        past_assets = []
+
+        for date, assets_to_buy in buy_signal.items():
+            delisted_assets = []
+            nan_assets = spy_holdings_mask.loc[date, past_assets].isna()
+            spy_belonging_state = spy_holdings_mask.loc[date, past_assets].dropna()
+
+            if any(nan_assets):
+                delisted_assets = (
+                    spy_holdings_mask[past_assets].loc[date, nan_assets].index.tolist()
+                )
+                for asset in delisted_assets:
+                    past_assets = [
+                        holding for holding in past_assets if holding != asset
+                    ]
+
+            assets_to_drop = [
+                asset for asset in sell_signal[date] if asset in past_assets
+            ]
+
+            if not all(spy_belonging_state):
+                spy_delisted_assets = list(
+                    set(past_assets)
+                    - set(
+                        spy_belonging_state.index[
+                            spy_holdings_mask.loc[date, past_assets]
+                        ]
+                        .dropna()
+                        .tolist()
+                    )
+                )
+                assets_to_drop += spy_delisted_assets
+                for asset in spy_delisted_assets:
+                    past_assets = [
+                        holding for holding in past_assets if holding != asset
+                    ]
+
+            current_sell_signal = {}
+
+            for asset in assets_to_drop:
+                current_sell_signal[asset] = 1
+                past_assets = [holding for holding in past_assets if holding != asset]
+
+            current_assets = past_assets + assets_to_buy
+
+            current_buy_signal = {}
+            assets_allocation = []
+
+            if len(assets_to_buy) != 0:
+                assets_allocation = allocation_function(
+                    date=date, list_of_assets=current_assets
+                )
+
+                for asset, allocation in zip(current_assets, assets_allocation):
+                    current_buy_signal[asset] = allocation * (current_assets).count(
+                        asset
+                    )
+
+                one_diference = sum(current_buy_signal.values()) - 1
+
+                current_buy_signal[asset] = current_buy_signal[asset] - one_diference
+
+                for asset in past_assets:
+                    if spy_holdings_mask.loc[date, asset]:
+                        current_sell_signal[asset] = 1
+
+            rebalance_signal[date] = {
+                "buy": current_buy_signal,
+                "sell": current_sell_signal,
+            }
+
+            past_assets += assets_to_buy
+
+        return rebalance_signal
+
+    def _holding_state_to_signal(
+        self, spy_holdings_mask: pd.DataFrame, allocation_function: partial
+    ) -> dict:
+        """
+        This function converts the holding state DataFrame into a buy and sell signal dictionary.
+        Args:
+            spy_holdings_mask (pd.DataFrame): DataFrame indicating whether an asset is held on a given day.
+            allocation_function (partial): A partial function to calculate asset allocations.
+        Returns:
+            dict: A dictionary where keys are dates and values are dictionaries with buy and sell signals.
+        """
+
+        self.buy_mask, self.sell_mask = self.holding_state_to_buy_sell_masks()
+        self.buy_signal, self.sell_signal = self.mask_to_signal()
+
+        self.sell_signal = self._sell_signal_processor()
+
+        processed_signal = self._buy_sell_formater(
+            spy_holdings_mask=spy_holdings_mask, allocation_function=allocation_function
+        )
+
+        return processed_signal
 
 
 class FreqPortfolioSimulator:
@@ -1630,13 +1905,6 @@ class FixedStopLoss:
             asset: {"date": assets_entry_dates[asset], "price": entry_prices[asset]}
             for asset in assets
         }
-
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from scipy.stats import norm
 
 
 class PortfolioEvaluator:
