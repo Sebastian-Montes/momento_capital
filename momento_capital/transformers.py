@@ -121,7 +121,7 @@ def calculate_rsi(array, window_size):
     return rsi
 
 
-def calculate_rolling_corr(A, B, window_size):
+def calculate_rolling_corr(A, B, window_size):  # O.S (Bench, Assets, Samples)
     if A.shape[0] != B.shape[0]:
         raise ValueError("size at axis 0 must be the same for input A and B")
     unfolded_A = np.lib.stride_tricks.sliding_window_view(

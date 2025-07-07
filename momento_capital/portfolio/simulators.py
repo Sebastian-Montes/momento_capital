@@ -52,10 +52,13 @@ class EventPortfolioSimulator:
             raise ValueError("Signal first date include selling instructions")
         self._raise_for_instruction(instruction=signal[self.today])
         buying_assets = signal[self.today]["buy"]
-        for asset in buying_assets:
+        for i, asset in enumerate(buying_assets):
+            amount_to_buy = self.portfolio_value * signal[self.today]["buy"][asset]
+            if i == len(buying_assets) - 1 and amount_to_buy > self.liquid_money:
+                amount_to_buy = self.liquid_money
             self._buy(
                 asset=asset,
-                quantity=self.portfolio_value * signal[self.today]["buy"][asset],
+                quantity=amount_to_buy,
             )
 
         self._check_for_delisted()
@@ -155,8 +158,10 @@ class EventPortfolioSimulator:
                         asset=holding,
                         quantity=amount_to_buy,
                     )
+
             if len(buying_signal) > 0:  # {}
                 for holding, allocation_to_buy in buying_signal.items():
+
                     quantity_to_buy = allocation_to_buy * self.portfolio_value
                     if (
                         holding == list(sorted(buying_signal.keys()))[-1]
@@ -248,7 +253,7 @@ class EventPortfolioSimulator:
     def _buy(self, asset, quantity):
         if quantity > self.liquid_money:
             raise ValueError(
-                f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money}"
+                f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money} date: {self.today}"
             )
         self.trades.append(
             {
