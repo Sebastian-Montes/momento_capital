@@ -1555,6 +1555,111 @@ class TrailingStopSMA:
         return decision, details
 
 
+class TrailingStopNegativeRocVolatilityStd:
+    def __init__(self, threshold, df, window_size, z_score_window_size):
+        self.threshold = threshold
+        self.df = df
+        self.window_size = window_size
+        self.z_score_window_size = z_score_window_size
+        self.max_window = window_size + z_score_window_size
+        self.volatility_df = apply_function_to_data(
+            df=df,
+            function=calculate_relative_volatility_on_prices,
+            returns_period=1,
+            window_size=window_size,
+        )
+        self.z_vol_df = apply_function_to_data(
+            df=self.volatility_df,
+            function=lambda array: (
+                array[
+                    -len(
+                        np.lib.stride_tricks.sliding_window_view(
+                            array, window_shape=z_score_window_size, axis=0
+                        )
+                    ) :
+                ]
+                - np.mean(
+                    np.lib.stride_tricks.sliding_window_view(
+                        array, window_shape=z_score_window_size, axis=0
+                    ),
+                    axis=2,
+                )
+            )
+            / np.std(
+                np.lib.stride_tricks.sliding_window_view(
+                    array, window_shape=z_score_window_size, axis=0
+                ),
+                axis=2,
+            ),
+        )
+        self.roc_df = apply_function_to_data(
+            df=df, function=lambda array: (array[1:] / array[:-1]) - 1
+        )
+
+    def evaluate_risk(self, simulator, date):
+
+        assets = list(simulator.positions.keys())
+        current_price = self.df.loc[date]
+        current_z_volatility = self.z_vol_df.loc[date]
+        details = {}
+        decision = {}
+
+        for asset_idx, asset in enumerate(assets):
+            last_volatility_window = self.volatility_df.iloc[
+                self.volatility_df.index.get_loc(date)
+                - self.window_size
+                + 1 : self.volatility_df.index.get_loc(date)
+                + 1
+            ][[asset]]
+            volatility_peak_date = last_volatility_window.diff()[asset].idxmax()
+            roc_on_max_vol = self.roc_df.loc[volatility_peak_date, asset]
+            details[asset] = {
+                "Price": current_price.loc[asset],
+                "Z_Volatility": current_z_volatility.loc[asset],
+                "ROC_on_max_vol": roc_on_max_vol,
+            }
+
+            if current_z_volatility.loc[asset] >= self.threshold:
+                if roc_on_max_vol < 0:
+                    decision[asset] = False
+                else:
+                    decision[asset] = True
+            else:
+                decision[asset] = True  # false es vender
+        return decision, details
+
+    def evaluate_prospects(self, simulator, prospects, date):
+
+        current_price = self.df.loc[date]
+        current_z_volatility = self.z_vol_df.loc[date]
+        details = {}
+        decision = {}
+
+        for asset_idx, asset in enumerate(prospects):
+            last_volatility_window = self.volatility_df.iloc[
+                self.volatility_df.index.get_loc(date)
+                - self.window_size
+                + 1 : self.volatility_df.index.get_loc(date)
+                + 1
+            ][[asset]]
+            volatility_peak_date = last_volatility_window.diff()[asset].idxmax()
+            roc_on_max_vol = self.roc_df.loc[volatility_peak_date, asset]
+            details[asset] = {
+                "Price": current_price.loc[asset],
+                "Z_Volatility": current_z_volatility.loc[asset],
+                "ROC_on_max_vol": roc_on_max_vol,
+            }
+            if current_z_volatility.loc[asset] >= self.threshold:
+                if roc_on_max_vol < 0:
+                    decision[asset] = False
+                else:
+                    decision[asset] = True
+            else:
+                decision[asset] = True  # false es vender
+
+        return decision, details
+
+
 class TrailingStopVolatilityStd:
     def __init__(
         self,
