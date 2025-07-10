@@ -1700,6 +1700,7 @@ class TrailingStopVolatilityStd:
                 axis=2,
             ),
         )
+        self.max_window = window_size + z_score_window_size
 
     def evaluate_risk(self, simulator, date):
 
@@ -2041,6 +2042,43 @@ class TrailingStopEquitySMA:
         keeping = equity_df.loc[date, "value"] >= sma_df.loc[date, "SMA"]
         decision = {asset: keeping for asset in simulator.positions}
 
+        return decision, details
+
+
+class MomentoPolicy:
+    def __init__(self, lookback_window, tolerance):
+        self.lookback_window = lookback_window
+        self.tolerance = tolerance
+        self.max_window = lookback_window + 1
+
+    def evaluate_risk(self, simulator, date):
+        assets = list(simulator.positions.keys())
+        equity_df = pd.DataFrame(simulator.value)
+        equity_df["date"] = pd.to_datetime(equity_df["date"])
+        equity_df.set_index("date", inplace=True)
+        if equity_df.shape[0] <= self.lookback_window:
+            details = {
+                "Portfolio": {
+                    "Equity": equity_df.loc[date, "value"],
+                }
+            }
+            decision = {asset: True for asset in assets}
+            return decision, details
+        window = equity_df.iloc[-self.lookback_window :]["value"].values
+        max_value = np.max(window)
+        current_value = equity_df.loc[date, "value"]
+        percentage_change = (current_value - max_value) / max_value
+        details = {
+            "Portfolio": {
+                f"{self.lookback_window} Days Max": max_value,
+                "Current Value": current_value,
+                "Percentage Change": percentage_change,
+            }
+        }
+        if percentage_change < -self.tolerance:
+            decision = {asset: False for asset in assets}
+        else:
+            decision = {asset: True for asset in assets}
         return decision, details
 
 

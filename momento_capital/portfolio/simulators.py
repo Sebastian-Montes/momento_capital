@@ -18,7 +18,10 @@ from functools import partial
 import datetime as dt
 
 
-class EventPortfolioSimulator:
+import copy
+
+
+class EventPortfolioSimulator1:
     def __init__(self, initial_cash, portfolio_id, verbose=0):
         self.initial_cash = initial_cash
         self.liquid_money = initial_cash
@@ -53,9 +56,11 @@ class EventPortfolioSimulator:
         self._raise_for_instruction(instruction=signal[self.today])
         buying_assets = signal[self.today]["buy"]
         for i, asset in enumerate(buying_assets):
+
             amount_to_buy = self.portfolio_value * signal[self.today]["buy"][asset]
             if i == len(buying_assets) - 1 and amount_to_buy > self.liquid_money:
                 amount_to_buy = self.liquid_money
+
             self._buy(
                 asset=asset,
                 quantity=amount_to_buy,
@@ -144,6 +149,7 @@ class EventPortfolioSimulator:
                 for i, (holding, target_allocation) in enumerate(
                     repeating_buying_assets.items()
                 ):
+
                     allocation_diff = (
                         target_allocation - self.current_holdings[holding]["allocation"]
                     )
@@ -154,6 +160,7 @@ class EventPortfolioSimulator:
                         and amount_to_buy > self.liquid_money
                     ):
                         amount_to_buy = self.liquid_money
+
                     self._buy(
                         asset=holding,
                         quantity=amount_to_buy,
@@ -161,14 +168,18 @@ class EventPortfolioSimulator:
 
             if len(buying_signal) > 0:  # {}
                 for holding, allocation_to_buy in buying_signal.items():
-
                     quantity_to_buy = allocation_to_buy * self.portfolio_value
                     if (
                         holding == list(sorted(buying_signal.keys()))[-1]
                         and quantity_to_buy > self.liquid_money
                     ):
                         quantity_to_buy = self.liquid_money
-                    self._buy(asset=holding, quantity=quantity_to_buy)
+
+                    self._buy(
+                        asset=holding,
+                        quantity=quantity_to_buy,
+                    )
+
             if self.today != self.dates[-1]:
                 self._check_for_delisted()
             self.history[self.today] = self.current_holdings
@@ -253,7 +264,7 @@ class EventPortfolioSimulator:
     def _buy(self, asset, quantity):
         if quantity > self.liquid_money:
             raise ValueError(
-                f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money} date: {self.today}"
+                f"Cannot buy ${quantity} of {asset} because the liquid money is: ${self.liquid_money}"
             )
         self.trades.append(
             {
@@ -554,8 +565,8 @@ class EventPortfolioSimulator:
                         current_sell_signal[asset] = 1
 
             rebalance_signal[date] = {
-                "buy": current_buy_signal,
-                "sell": current_sell_signal,
+                "buy": dict(sorted(current_buy_signal.items(), key=lambda x: x[0])),
+                "sell": dict(sorted(current_sell_signal.items(), key=lambda x: x[0])),
             }
 
             past_assets += assets_to_buy
