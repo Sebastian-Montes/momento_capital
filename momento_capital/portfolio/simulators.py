@@ -21,7 +21,7 @@ import datetime as dt
 import copy
 
 
-class EventPortfolioSimulator1:
+class EventPortfolioSimulator:
     def __init__(self, initial_cash, portfolio_id, verbose=0):
         self.initial_cash = initial_cash
         self.liquid_money = initial_cash
