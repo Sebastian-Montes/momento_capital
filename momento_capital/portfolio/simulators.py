@@ -18,9 +18,6 @@ from functools import partial
 import datetime as dt
 
 
-import copy
-
-
 class EventPortfolioSimulator:
     def __init__(self, initial_cash, portfolio_id, verbose=0):
         self.initial_cash = initial_cash
@@ -556,9 +553,11 @@ class EventPortfolioSimulator:
                         asset
                     )
 
-                one_diference = sum(current_buy_signal.values()) - 1
-
-                current_buy_signal[asset] = current_buy_signal[asset] - one_diference
+                if sum(current_buy_signal.values()) > 1:
+                    one_diference = sum(current_buy_signal.values()) - 1
+                    current_buy_signal[asset] = (
+                        current_buy_signal[asset] - one_diference
+                    )
 
                 for asset in past_assets:
                     if spy_holdings_mask.loc[date, asset]:
